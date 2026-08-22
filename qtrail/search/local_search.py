@@ -21,14 +21,12 @@ from qtrail.problems import ProgramGraph
 class AdaptiveLocalSearch:
     def __init__(self, graph: ProgramGraph, dist_eff: np.ndarray,
                  cfg: PostProcessConfig,
-                 rng: np.random.Generator | None = None,
-                 disabled: list | None = None):
+                 rng: np.random.Generator | None = None):
         self.adj = graph.adj
         self.dist = dist_eff
         self.n = graph.n
         self.cfg = cfg
         self.rng = rng or np.random.default_rng(0)
-        self.disabled = list(disabled or [])
 
         # "hot" logical qubits: top hot_frac by weighted incident interaction
         degree_w = graph.adj.sum(axis=1)
@@ -175,9 +173,6 @@ class AdaptiveLocalSearch:
         else:
             free = np.array(sorted(set(range(self.dist.shape[0])) - set(pi.tolist())),
                             dtype=np.int64)
-        bad = set(getattr(self, "disabled", []) or [])
-        if bad:
-            free = free[~np.isin(free, list(bad))]
 
         for move_i in range(max_moves):
             phase1 = move_i < phase1_moves
@@ -246,8 +241,7 @@ class AdaptiveLocalSearch:
 
 def improve_layout(graph: ProgramGraph, dist_eff: np.ndarray, start_pi: np.ndarray,
                    cfg: PostProcessConfig, rng: np.random.Generator | None = None,
-                   max_moves: int | None = None,
-                   disabled: list | None = None) -> tuple[np.ndarray, float]:
+                   max_moves: int | None = None) -> tuple[np.ndarray, float]:
     """Convenience wrapper: single-start adaptive local search."""
-    ls = AdaptiveLocalSearch(graph, dist_eff, cfg, rng=rng, disabled=disabled)
+    ls = AdaptiveLocalSearch(graph, dist_eff, cfg, rng=rng)
     return ls.search(start_pi, max_moves=max_moves)

@@ -15,8 +15,7 @@ from qtrail.pure.circuit import Circuit
 from qtrail.pure.metrics import compute_metrics as pure_metrics
 from qtrail.pure.post import decompose_to_platform, post_route
 from qtrail.pure.router import sabre_route
-from qtrail.pure.layout import (heuristic_layout, noise_greedy_layout,
-                                 strong_noise_layout, usable_positions)
+from qtrail.pure.layout import heuristic_layout
 
 # 无 qiskit 依赖的复用组件
 from qtrail.problems import build_program_graph
@@ -50,7 +49,6 @@ class PureMapper:
         self.routing_seeds = routing_seeds
         self._rng = np.random.default_rng(seed)
         self._dist_eff_cache = {}
-        self._disabled = list(getattr(spec, "disabled_qubits", []) or [])
 
     def _dist_eff(self, noise_lambda):
         if noise_lambda not in self._dist_eff_cache:
@@ -60,31 +58,23 @@ class PureMapper:
 
     # ------------------------------------------------------------ 布局竞技
     def _score_candidates(self, circ, graph, candidates):
-        """每个候选用自研路由器实测 + 单遍置换折叠后评分：
-        返回 (residual_swaps, depth, fidelity, pi) 列表。
+        """每个候选用自研路由器实测：返回 (swaps, depth, fidelity, pi) 列表。
 
-        评分路由上限统一 100000（2026-08-22 起不再分档——增量路由 +
-        Numba 内核后单交换 ~50μs，全预算评分成本可接受；此前 >50 比特
-        的 20000 截断在折叠口径下会系统性低估需要 >20000 交换的候选
-        （噪声启发式候选在 qft 上需 ~27k 交换，被截断导致错失胜者）。
-        胜者最终路由全预算（永不截断，任何规模必出映射方案）。
-        2026-08-22：候选评分改为**硬件可执行后处理口径**（连通性感知
-        推挤 + 尾块吸收，与最终输出同口径，候选竞技看到的即交付线路
-        的真实指标）。
+        评分路由上限：>50 比特 20000 交换（与全分层重测完全同口径——
+        注意：触及上限的候选**可以**胜出，因为后处理栈能把置换内容吸收
+        到 0，截断值不惩罚、只截断——这是该管线的实测特性，勿改上限）。
+        胜者最终路由用全预算（永不截断，任何规模必出映射方案）。
         """
-        cap = 100000
+        cap = 20000 if graph.n > 50 else 100000
         scored = []
         for pi in candidates:
             layout = {i: int(pi[i]) for i in range(graph.n)}
             best_entry = None
             for rseed in (self.seed + k for k in range(self.routing_seeds)):
-                routed, swaps, fl = sabre_route(circ, self.spec, layout,
-                                                seed=rseed,
-                                                lam_ms=self.lam_ms,
-                                                max_swaps=cap)
-                post_route(routed, dict(fl), spec=self.spec)
-                m = pure_metrics(routed, routed.count("swap"),
-                                 self.spec.calib)
+                routed, swaps, _ = sabre_route(circ, self.spec, layout,
+                                               seed=rseed, lam_ms=self.lam_ms,
+                                               max_swaps=cap)
+                m = pure_metrics(routed, swaps, self.spec.calib)
                 entry = (m["swap_count"], m["depth"],
                          m["est_fidelity"], pi)
                 if best_entry is None or entry[1] < best_entry[1]:
@@ -120,8 +110,7 @@ class PureMapper:
             for s in starts[:cfg.postprocess.starts]:
                 if cfg.postprocess.enabled:
                     pi, _ = improve_layout(graph, dist_eff, s,
-                                           cfg.postprocess, rng=self._rng,
-                                           disabled=self._disabled)
+                                           cfg.postprocess, rng=self._rng)
                 else:
                     pi = s
                 pool.append(pi)
@@ -133,43 +122,22 @@ class PureMapper:
                 for s0 in starts0[:cfg.postprocess.starts]:
                     if cfg.postprocess.enabled:
                         pi0, _ = improve_layout(graph, self.spec.dist, s0,
-                                                cfg.postprocess, rng=self._rng,
-                                           disabled=self._disabled)
+                                                cfg.postprocess, rng=self._rng)
                     else:
                         pi0 = s0
                     pool.append(pi0)
-        # 噪声启发式候选（自研）：噪声贪心 + 强噪声纯噪声序——密集
-        # 全连通线路（QFT/QV）的缺陷热区规避补充（RL 静态代价在设备
-        # 饱和时被拓扑项主导，无法充分压低有效误差）
-        pi_n = pi_sn = None
-        if noise_lambda != 0.0:
-            pi_n = noise_greedy_layout(graph, self.spec, dist_eff, self._rng)
-            if cfg.postprocess.enabled:
-                pi_n, _ = improve_layout(graph, dist_eff, pi_n,
-                                         cfg.postprocess, rng=self._rng,
-                                           disabled=self._disabled)
-            pool.append(pi_n)
-            pi_sn = strong_noise_layout(graph, self.spec, self._rng)
-            if cfg.postprocess.enabled:
-                pi_sn, _ = improve_layout(graph, dist_eff, pi_sn,
-                                          cfg.postprocess, rng=self._rng,
-                                           disabled=self._disabled)
-            pool.append(pi_sn)
         if graph.n > 50:  # 大线路：候选池缩减（评分成本控制）
             n_noise = min(5, len(pool))
             noise_part = pool[:n_noise]
             lam0_part = [pi for pi in pool[10:13]] \
                 if noise_lambda != 0.0 and len(pool) > 10 else []
-            extra = [pi for pi in (pi_n, pi_sn) if pi is not None]
-            pool = noise_part + lam0_part + extra
+            pool = noise_part + lam0_part
         if not pool:
             pi_h = heuristic_layout(graph, self.spec, self._rng)
             pi_h, _ = improve_layout(graph, self.spec.dist, pi_h,
-                                     cfg.postprocess, rng=self._rng,
-                                           disabled=self._disabled)
+                                     cfg.postprocess, rng=self._rng)
             pool.append(pi_h)
-        usable = usable_positions(self.spec)
-        pool.append(usable[np.arange(graph.n, dtype=np.int64) % len(usable)])
+        pool.append(np.arange(graph.n, dtype=np.int64) % self.spec.n)
 
         scored = self._score_candidates(circ, graph, pool)
         best_pi, best_swaps = self._select(scored)
@@ -196,12 +164,10 @@ class PureMapper:
             circ, self.spec, layout, seed=self.seed, lam_ms=self.lam_ms)
         removed = 0
         if self.use_post:
-            routed, removed = post_route(routed, final_layout,
-                                         spec=self.spec)
+            routed, removed = post_route(routed, final_layout)
         final_qc = decompose_to_platform(routed)
         metrics = pure_metrics(final_qc, routed.count("swap"),
                                self.spec.calib)
-        metrics["routed_swaps"] = swaps            # 折叠前路由原始交换数
         metrics["static_cost"] = float(graph.cost(pi, self.spec.dist,
                                                   dist_mult=2.0))
         metrics["post_absorbed"] = removed

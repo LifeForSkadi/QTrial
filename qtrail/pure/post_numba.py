@@ -2,7 +2,7 @@
 
 与 post.py 的 Python 版**逐位等价**：同一套重写规则、同一轮次结构、
 同一扫描顺序；线路表示为 (name 码, q0, q1) 并行数组 + 源索引映射
-（重写不改变门参数，参数按源索引对齐回填）。无 Numba 时回退
+（重写不改变门参数故按源索引对齐回填）。无 Numba 时回退
 Python 原版（功能等价）。
 
 规则（与 _swap_past 一致）：
@@ -183,17 +183,6 @@ def _circ_to_arrays(ops):
     return names, q0, q1
 
 
-def numba_push_swaps(circ, max_rounds: int = 200):
-    """push_swaps 的 Numba 版：返回重写后的 ops 列表（Inst）。"""
-    from qtrail.pure.circuit import Inst
-    ops = circ.ops
-    if not ops:
-        return list(ops)
-    names, q0, q1 = _circ_to_arrays(ops)
-    nm, nq0, nq1, src = _push_swaps_kernel(names, q0, q1, max_rounds)
-    return _rebuild(ops, nm, nq0, nq1, src)
-
-
 def _rebuild(ops, nm, nq0, nq1, src):
     from qtrail.pure.circuit import Inst
     out = []
@@ -209,161 +198,13 @@ def _rebuild(ops, nm, nq0, nq1, src):
     return out
 
 
-if _HAS_NUMBA:
-    @njit(cache=True)
-    def _swap_past_arr_safe(a, b, gname, gq0, gq1, amat, N):
-        """连通性感知版 _swap_past_arr：触碰 2Q 门的重标记仅当新比特对
-        仍在耦合图上（amat 校验）时返回 ok=True，否则阻塞。"""
-        if gname == CX:
-            if (gq0 != a and gq0 != b and gq1 != a and gq1 != b):
-                return True, CX, gq0, gq1
-            if (gq0 == a or gq0 == b) and (gq1 == a or gq1 == b):
-                return True, CX, gq1, gq0          # 同对翻转：恒合法
-            q0 = b if gq0 == a else (a if gq0 == b else gq0)
-            q1 = b if gq1 == a else (a if gq1 == b else gq1)
-            if amat[q0 * N + q1]:
-                return True, CX, q0, q1
-            return False, gname, gq0, gq1
-        if gname == CZ:
-            if (gq0 == a or gq0 == b) and (gq1 == a or gq1 == b):
-                return True, CZ, gq0, gq1
-            if gq0 != a and gq0 != b and gq1 != a and gq1 != b:
-                return True, CZ, gq0, gq1
-            q0 = b if gq0 == a else (a if gq0 == b else gq0)
-            q1 = b if gq1 == a else (a if gq1 == b else gq1)
-            if amat[q0 * N + q1]:
-                return True, CZ, q0, q1
-            return False, gname, gq0, gq1
-        if gname == SWAP:
-            if (gq0 == a or gq0 == b) and (gq1 == a or gq1 == b):
-                return True, gname, gq0, gq1
-            if gq0 != a and gq0 != b and gq1 != a and gq1 != b:
-                return True, gname, gq0, gq1
-            q0 = b if gq0 == a else (a if gq0 == b else gq0)
-            q1 = b if gq1 == a else (a if gq1 == b else gq1)
-            return True, gname, q0, q1          # swap 无邻近约束
-        if gname == U3 or gname == U1:
-            q = gq0
-            if q == a:
-                return True, gname, b, gq1
-            if q == b:
-                return True, gname, a, gq1
-            return True, gname, gq0, gq1
-        return False, gname, gq0, gq1
-
-    @njit(cache=True)
-    def _push_round_safe(nm, a0, a1, bnm, ba0, ba1, bsrc, src, n, amat, N):
-        """与 _push_round 同结构，_swap_past_arr 换连通性感知版。"""
-        w = 0
-        i = 0
-        changed = False
-        pending = False
-        pa = pb = pa_src = -1
-        while i < n:
-            if not pending:
-                if i == n - 1:
-                    bnm[w] = nm[i]
-                    ba0[w] = a0[i]
-                    ba1[w] = a1[i]
-                    bsrc[w] = src[i]
-                    w += 1
-                    i += 1
-                    break
-                if nm[i] != SWAP:
-                    bnm[w] = nm[i]
-                    ba0[w] = a0[i]
-                    ba1[w] = a1[i]
-                    bsrc[w] = src[i]
-                    w += 1
-                    i += 1
-                    continue
-                pa = a0[i]
-                pb = a1[i]
-                pa_src = src[i]
-                pending = True
-                i += 1
-                continue
-            if i >= n:
-                break
-            a, b = pa, pb
-            gname = nm[i]
-            gq0 = a0[i]
-            gq1 = a1[i]
-            if gname == SWAP and ((gq0 == a and gq1 == b)
-                                  or (gq0 == b and gq1 == a)):
-                pending = False
-                i += 1
-                changed = True
-                continue
-            ok, rname, rq0, rq1 = _swap_past_arr_safe(a, b, gname, gq0, gq1,
-                                                      amat, N)
-            if ok:
-                bnm[w] = rname
-                ba0[w] = rq0
-                ba1[w] = rq1
-                bsrc[w] = src[i]
-                w += 1
-                i += 1
-                changed = True
-                continue
-            bnm[w] = SWAP
-            ba0[w] = a
-            ba1[w] = b
-            bsrc[w] = pa_src
-            w += 1
-            pending = False
-        if pending:
-            bnm[w] = SWAP
-            ba0[w] = pa
-            ba1[w] = pb
-            bsrc[w] = pa_src
-            w += 1
-        while i < n:
-            bnm[w] = nm[i]
-            ba0[w] = a0[i]
-            ba1[w] = a1[i]
-            bsrc[w] = src[i]
-            w += 1
-            i += 1
-        return w, changed
-
-    @njit(cache=True)
-    def _push_swaps_safe_kernel(names, q0, q1, amat, N, max_rounds):
-        L = names.shape[0]
-        nm = names.copy()
-        a0 = q0.copy()
-        a1 = q1.copy()
-        src = np.arange(L, dtype=np.int64)
-        bnm = np.empty(L, dtype=np.int64)
-        ba0 = np.empty(L, dtype=np.int64)
-        ba1 = np.empty(L, dtype=np.int64)
-        bsrc = np.empty(L, dtype=np.int64)
-        n = L
-        changed = True
-        rounds = 0
-        while changed and rounds < max_rounds:
-            rounds += 1
-            n, changed = _push_round_safe(nm, a0, a1, bnm, ba0, ba1, bsrc,
-                                          src, n, amat, N)
-            nm, bnm = bnm, nm
-            a0, ba0 = ba0, a0
-            a1, ba1 = ba1, a1
-            src, bsrc = bsrc, src
-        return nm[:n], a0[:n], a1[:n], src[:n]
-
-
-def numba_push_swaps_safe(circ, amat, max_rounds: int = 200):
-    """push_swaps_safe 的 Numba 版（连通性感知）。amat: [N,N] bool。"""
-    import numpy as np
+def numba_push_swaps(circ, max_rounds: int = 200):
+    """push_swaps 的 Numba 版：返回重写后的 ops 列表（Inst）。"""
     ops = circ.ops
     if not ops:
         return list(ops)
     names, q0, q1 = _circ_to_arrays(ops)
-    amat = np.asarray(amat, dtype=bool)
-    N = amat.shape[0]
-    flat = amat.ravel()
-    nm, nq0, nq1, src = _push_swaps_safe_kernel(names, q0, q1, flat, N,
-                                                max_rounds)
+    nm, nq0, nq1, src = _push_swaps_kernel(names, q0, q1, max_rounds)
     return _rebuild(ops, nm, nq0, nq1, src)
 
 

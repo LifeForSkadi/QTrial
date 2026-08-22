@@ -112,39 +112,6 @@ python -m qtrail.verify examples/qft5.qasm
 
 20 比特以下做精确态矢量对比，21-28 比特做随机化采样，都会输出保真度。这个功能建议每次给评委演示前都跑一遍。
 
-### 2.3 天衍真机验证（需要平台 API key）
-
-**步骤一：配置 key**。两种方式任选：
-
-```bash
-# 方式 A：环境变量（本次会话生效）
-set TIANYAN_LOGIN_KEY=你的key      # Windows cmd；Linux/macOS 用 export
-
-# 方式 B：项目根目录放一个 .tianyan_key 文件（一行 key）——最省事
-```
-
-**注意：`.tianyan_key` 是你的私有凭据，打包/提交作品前务必删除！**
-
-**步骤二：用真实校准数据映射**（输出 QCIS 用真实比特标签，平台直接可跑）：
-
-```bash
-python -m qtrail.pure_cli examples/qft5.qasm --calibration live
-# 287 在维护/校准时换别的机器：
-python -m qtrail.pure_cli examples/qft5.qasm --calibration live --device tianyan176
-```
-
-live 模式会拉取真实拓扑/校准/禁用比特（287 目前 105 比特 168 耦合器、4 个禁用比特），映射出的 `.qcis` 已经过平台格式校验口径（M 指令、真实标签、真实耦合器）。
-
-**步骤三：真机验证**（提交映射线路，把实测计数回映射到逻辑空间，与经典模拟的测量分布对照）：
-
-```bash
-python -m qtrail.verify examples/qft5.qasm --on-platform \
-    --qcis out/qft5.qcis --layout-json out/qft5_metrics.json \
-    --machine tianyan176 --shots 12000
-```
-
-判定口径：经典保真度 ≥ 0.98 且 TVD ≤ 0.05。**这是对映射优化算法正确性的真机级证明**——本地态矢量验证保证语义，真机对照保证在真实噪声/拓扑下行为一致。
-
 ### 2.3 Web 演示
 
 ```bash

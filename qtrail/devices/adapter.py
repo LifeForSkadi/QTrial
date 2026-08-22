@@ -62,9 +62,8 @@ def download_tianyan287_spec(machine: str = "tianyan-287",
     """
     try:
         from cqlib import TianYanPlatform  # guarded import
-        if token is None:
-            from qtrail.utils.tianyan_key import get_key
-            token = get_key()
+        token = token or os.environ.get("TIANYAN_LOGIN_KEY", "") or \
+            os.environ.get("CQLIB_LOGIN_KEY", "")
         if not token:
             log.warning("no Tianyan login key; falling back to synthetic device spec")
             return None
@@ -167,10 +166,6 @@ def download_tianyan287_spec(machine: str = "tianyan-287",
         g.add_nodes_from(range(n))
         g.add_edges_from(edges)
         dist = nx.floyd_warshall_numpy(g).astype(np.float32)
-        # 禁用比特为孤立节点（不可达 = inf）→ 用大数替代，避免下游
-        # int 转换/评分产生 inf 与 NaN（禁用比特不会承载逻辑比特，
-        # 大数仅作数值安全垫）
-        dist = np.where(np.isinf(dist), np.float32(1e6), dist)
         noise_dist = dist.copy()  # topology-only noise fallback
         from qtrail.devices.spec import _featurize
         if coords is None:

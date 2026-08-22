@@ -16,9 +16,7 @@ def submit_qcis(qcis_path: str | Path, machine: str = "tianyan-287",
     Requires a login key (arg > env TIANYAN_LOGIN_KEY). Returns the query ids
     on success, None with a friendly message when unavailable.
     """
-    if token is None:
-        from qtrail.utils.tianyan_key import get_key
-        token = get_key()
+    token = token or os.environ.get("TIANYAN_LOGIN_KEY", "") or         os.environ.get("CQLIB_LOGIN_KEY", "")
     if not token:
         log.warning("no Tianyan login key (arg / TIANYAN_LOGIN_KEY env); "
                     "skipping platform submission — local outputs are ready")

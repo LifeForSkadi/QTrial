@@ -7,13 +7,6 @@ from qtrail.devices.spec import DeviceSpec
 from qtrail.problems import ProgramGraph
 
 
-def usable_positions(spec: DeviceSpec) -> np.ndarray:
-    """可用物理比特索引（剔除 disabled_qubits，真机 live 配置安全）。"""
-    bad = set(getattr(spec, "disabled_qubits", []) or [])
-    return np.array([q for q in range(spec.n) if q not in bad],
-                    dtype=np.int64)
-
-
 def heuristic_layout(graph: ProgramGraph, spec: DeviceSpec,
                      rng: np.random.Generator | None = None) -> np.ndarray:
     """Spectral heuristic: Fiedler-vector order of logical qubits mapped onto
@@ -25,90 +18,11 @@ def heuristic_layout(graph: ProgramGraph, spec: DeviceSpec,
     fiedler = evecs[:, 1] if n > 1 else np.zeros(n)
     logical_order = np.argsort(fiedler)
 
-    path = [p for p in _device_snake(spec) if p in set(usable_positions(spec).tolist())]
+    path = _device_snake(spec)
 
     pi = np.zeros(n, dtype=np.int64)
     for k, logical in enumerate(logical_order):
         pi[logical] = path[k % len(path)]
-    return pi
-
-
-def noise_greedy_layout(graph: ProgramGraph, spec: DeviceSpec,
-                        dist_eff: np.ndarray,
-                        rng: np.random.Generator | None = None) -> np.ndarray:
-    """噪声贪心候选（自研启发式）：逻辑比特按交互度降序逐个放置，
-    空位评分 = 已放置邻居的交互加权距离和 + 噪声罚项。
-
-    目的：为候选池提供与 RL 静态代价互补的「噪声优先」解——RL 布局在
-    密集全连通线路（如 QFT）上可能被拓扑项主导而忽视缺陷热区，本候选
-    显式压低高误差耦合器的使用。
-    """
-    n = graph.n
-    calib = spec.calib
-    # 物理比特噪声评分：1Q 误差 + 邻边 2Q 误差均值
-    err = np.zeros(spec.n)
-    for q in range(spec.n):
-        nb = [b for b in range(spec.n) if spec.adj[q, b]]
-        e2 = (float(np.mean([calib.err_2q.get((min(q, b), max(q, b)),
-                                              calib.err_2q.get(
-                                                  (max(q, b), min(q, b)), 0.0))
-                             for b in nb])) if nb else 0.0)
-        err[q] = float(calib.err_1q[q]) + e2
-    err_norm = err / (err.max() + 1e-12)
-    # 逻辑顺序：交互度降序
-    deg = graph.adj.sum(axis=1)
-    logical_order = list(np.argsort(-deg))
-    pi = np.full(n, -1, dtype=np.int64)
-    used = set()
-    gamma = 0.05 * (n / 20.0)  # 噪声罚系数（随规模温和增长）
-    usable = set(usable_positions(spec).tolist())
-    for logical in logical_order:
-        best_q, best_c = -1, np.inf
-        for q in usable:
-            if q in used:
-                continue
-            c = gamma * err_norm[q] * deg[logical]
-            for j in range(n):
-                w = graph.adj[logical, j]
-                if w > 0 and pi[j] >= 0:
-                    c += w * dist_eff[q, pi[j]]
-            if c < best_c:
-                best_q, best_c = q, c
-        pi[logical] = best_q
-        used.add(best_q)
-    return pi
-
-
-def strong_noise_layout(graph: ProgramGraph, spec: DeviceSpec,
-                        rng: np.random.Generator | None = None) -> np.ndarray:
-    """强噪声候选（自研启发式）：纯噪声优先的占用——逻辑比特按交互度
-    降序放到误差最低的物理比特上，完全不考虑距离（连通性交给路由）。
-
-    动机：全连通密集线路（QFT/QV）会饱和设备，距离项无法避免缺陷
-    热区；纯噪声序能实现低于中位误差的有效误差（实测 qft_N054 超越
-    中位误差理想界），路由出的 SWAP 由折叠完全吸收。
-    """
-    n = graph.n
-    calib = spec.calib
-    err = np.zeros(spec.n)
-    for q in range(spec.n):
-        nb = [b for b in range(spec.n) if spec.adj[q, b]]
-        e2 = (float(np.mean([calib.err_2q.get((min(q, b), max(q, b)),
-                                              calib.err_2q.get(
-                                                  (max(q, b), min(q, b)), 0.0))
-                             for b in nb])) if nb else 0.0)
-        err[q] = float(calib.err_1q[q]) + e2
-    usable = set(usable_positions(spec).tolist())
-    order = [q for q in np.argsort(err) if q in usable]
-    logical_order = list(np.argsort(-graph.adj.sum(axis=1)))
-    pi = np.full(n, -1, dtype=np.int64)
-    used = set()
-    for logical in logical_order:
-        for q in order:
-            if q not in used:
-                pi[logical] = q
-                used.add(q)
-                break
     return pi
 
 

@@ -9,7 +9,7 @@
 
 ## 摘要
 
-量子线路映射（qubit mapping / circuit compilation）决定一条逻辑线路在真实超导芯片上的执行成本：布局（初始映射）决定双比特门需要多少次 SWAP 才能满足邻近性约束，路由决定 SWAP 的具体插入位置。本项目将布局建模为**二次分配问题（QAP）**，用**图注意力网络（GAT）编码器 + 指针注意力解码器**学习布局策略，以 **REINFORCE + 自批评贪心基线**在**稀疏终局奖励**下训练（CO-MAP 范式）；在此基础上做三项 QTrail 优化：**噪声感知映射**（7 维校准特征 + 噪声加权距离）、**多起点自适应局部搜索**、**深度感知静态奖励**。交付管线完全自主实现（零 qiskit）：自研 OpenQASM 2.0 解析器、电路 IR、SABRE 级路由器（front layer + extended set + 逐门衰减 + 交换历史惩罚）与后处理栈（单遍置换折叠零残留 SWAP + 1Q 门约减 + U3 平台基分解）。正确性由态矢量等价验证与逐位 A/B 回归门禁保证；性能由增量前沿/扩展集维护与 Numba 融合内核支撑（路由器热循环 5×、后处理 10× 加速，结果逐位不变）。
+量子线路映射（qubit mapping / circuit compilation）决定一条逻辑线路在真实超导芯片上的执行成本：布局（初始映射）决定双比特门需要多少次 SWAP 才能满足邻近性约束，路由决定 SWAP 的具体插入位置。本项目将布局建模为**二次分配问题（QAP）**，用**图注意力网络（GAT）编码器 + 指针注意力解码器**学习布局策略，以 **REINFORCE + 自批评贪心基线**在**稀疏终局奖励**下训练（CO-MAP 范式）；在此基础上做三项 QTrail 优化：**噪声感知映射**（7 维校准特征 + 噪声加权距离）、**多起点自适应局部搜索**、**深度感知静态奖励**。交付管线完全自主实现（零 qiskit）：自研 OpenQASM 2.0 解析器、电路 IR、SABRE 级路由器（front layer + extended set + 逐门衰减 + 交换历史惩罚）与后处理栈（SWAP 共轭重写 + 消解 + 尾部置换吸收 + U3 平台基分解）。正确性由态矢量等价验证与逐位 A/B 回归门禁保证；性能由增量前沿/扩展集维护与 Numba 融合内核支撑（路由器热循环 5×、后处理 10× 加速，结果逐位不变）。
 
 **最终基准（587 条线路，QTrial pure fidelity 规则）**：平均估计保真度 QTrial **0.1958**、感知 O3 **0.2444**（QTrial 为其 0.80×）、pytket **0.1869**、盲目 O1 **0.1226**；逐线路胜场（534 条全完成）：vs 感知 O3 **29**、vs pytket **134**、vs 盲目 O1 **226**。分层明细见 §8.2 与 tables/final_report/。
 
@@ -56,15 +56,15 @@ $$
              ──► [2] 程序图构建（交互计数加权 + 时序感知 + 6 维节点特征）
              ──► [3] RL 布局：GAT 编码 + 指针解码（多起点：5 采样 + 4 乱序贪心 + 1 贪心）
              ──► [4] 自适应局部搜索（两阶段，每个起点独立精化）
-             ──► [5] 候选池路由竞技（RL 候选 + λ0 拓扑候选 + 噪声启发式 + 平凡布局，
+             ──► [5] 候选池路由竞技（RL 候选 + λ0 拓扑候选 + 启发式 + 平凡布局，
              │        自研路由器实测评分，swap/fidelity/depth 三规则决胜）
              ──► [6] 胜者最终路由（全预算，永不截断）
-             ──► [7] 后处理栈（单遍置换折叠 → cx/u1 消解 → 1Q 优化）
+             ──► [7] 后处理栈（SWAP 共轭推挤 → cx/u1 消解 → 尾部置换吸收）
              ──► [8] 平台基分解（cx→H-CZ-H、U3→[RZ,SX,X]、swap→3×cx）
              ──► 输出：映射后 QASM + QCIS（天衍平台）+ 指标 JSON
 ```
 
-阶段 [1]-[2] 是表示层，[3]-[4] 是学习层（稀疏奖励 RL + 组合搜索），[5]-[6] 是路由层（自研 SABRE），[7]-[8] 是等价变换层（保语义重写）。除阶段 [3] 的模型推理（PyTorch）与路由器评分 Numba 内核外，全流程为纯 Python/numpy 自主实现，**无任何外部编译器组件**。
+阶段 [1]-[2] 是表示层，[3]-[4] 是学习层（稀疏奖励 RL + 组合搜索），[5]-[6] 是路由层（自研 SABRE），[7]-[8] 是等价变换层（保语义重写）。除阶段 [3] 的模型推理（PyTorch）与路由器/后处理热循环的 Numba 内核外，全流程为纯 Python/numpy 自主实现，**无任何外部编译器组件**。
 
 ---
 
@@ -127,9 +127,7 @@ $$
 - **阶段一（探索，前 70% 预算）**：以 $p=0.3$ 概率对"热"比特（交互负载 top-25%）做 3 连交换的大扰动，其余单交换；patience 50；
 - **阶段二（精化，后 30% 预算）**：首改善单交换，patience 30；总步数预算 5000/起点。
 
-代价增量计算：交换只改变受影响比特对的项，每步 $O(n)$ 而非 $O(n^2)$，$n=105$ 单布局 ≤50ms。
-
-候选池在 RL 多起点之外补充两类自研噪声启发式（保持候选池 RL 纯净性——均为自研构造，无外部编译器输出）：**噪声贪心**（逻辑比特按交互度降序逐个放置到「已放置邻居加权距离和 + 噪声罚」最小的空位）与**强噪声序**（纯噪声优先的占用，距离完全交给路由——密集全连通线路如 QFT 会饱和设备、距离项无法规避缺陷热区，纯噪声序实现低于中位误差的有效误差）。候选均经折叠后口径实测评分（§5.1），fidelity 规则决胜。
+代价增量计算：交换只改变受影响比特对的项，每步 $O(n)$ 而非 $O(n^2)$，$n=105$ 单布局 ≤50ms。候选池保持 RL 纯净性（全部为自研构造，无外部编译器输出），经路由器实测评分、fidelity 规则决胜。
 
 ---
 
@@ -158,48 +156,44 @@ $$
 
 ### 4.3 正确性论证
 
-- **终止性**：每步交换要么解锁前沿门（前沿非空时必然存在这样的交换，否则所有前沿门端点已全局不可达，与连通性矛盾），要么降低前沿加权距离和——SABRE 的衰减机制使困难门权重随时间下降、评分景观持续给出可改进方向，实测全部线路终止；实现另设全预算上限（100000）作为兜底（2026-08-22 起候选评分与最终路由同预算、不截断——折叠口径下截断会系统性低估需大量交换的候选）。
+- **终止性**：每步交换要么解锁前沿门（前沿非空时必然存在这样的交换，否则所有前沿门端点已全局不可达，与连通性矛盾），要么降低前沿加权距离和——SABRE 的衰减机制使困难门权重随时间下降、评分景观持续给出可改进方向，实测全部线路终止；实现另设全预算上限（默认 100000，候选评分上限 20000 仅用于筛选、胜者最终路由永不截断）作为兜底。
 - **语义保持**：SWAP 是酉变换，交换后执行的门经位置追踪等价于原线路；态矢量等价测试保证（[tests/test_pure.py](../tests/test_pure.py)）。
 
 ---
 
 ## 5 后处理栈：置换共轭代数
 
-路由器的 SWAP 的全部作用只是把门共轭重标记、并在输出端产生一个比特置换。后处理栈在**保语义等价变换**下把这些冗余系统消除（代码见 [qtrail/pure/post.py](../qtrail/pure/post.py)），核心是**单遍置换折叠**——一个代数精确、与 SWAP 数无关的等价变换。
+路由器的 SWAP 往往过度：若干 SWAP 的净效果可能只是输出端的比特置换（可吸收）或相互抵消（可删除）。后处理栈在**保语义等价变换**下系统消除冗余（代码见 [qtrail/pure/post.py](../qtrail/pure/post.py)）。
 
-### 5.1 单遍置换折叠（fold_swaps）
+### 5.1 SWAP 对易重写
 
-路由后线路 $U = o_m \cdots o_2 o_1$（$o_t$ 为门或 SWAP）。对任意 SWAP $\sigma$ 与其右侧的门 $G$：
-
-$$
-\sigma \cdot G \;=\; G^{\sigma} \cdot \sigma, \qquad G^{\sigma} = \sigma G \sigma^{-1}, \tag{8}
-$$
-
-即 SWAP 与门交换时门按置换 $\sigma$ 共轭重标记——这是置换群作用在门集上的**共轭作用**（CX 双边触碰时控制/目标翻转、单边触碰与单比特门纯重标记，均为式 (8) 的特例）。把全部 SWAP 依次右移，整体恒等式为：
+SWAP 门 $P_{(a,b)}$ 是比特对 $(a,b)$ 上的置换算子。对任意门 $U$：
 
 $$
-U \;=\; P \cdot \prod_j G_j^{P_j}, \tag{8'}
+P_{(a,b)} \cdot U \cdot P_{(a,b)} \;=\; U^{\sigma_{ab}}, \ag{8}
 $$
 
-其中 $G_j^{P_j}$ 为门 $G_j$ 经其左侧全部 SWAP 的乘积 $P_j$ 共轭后的重标记门，$P$ 为全部 SWAP 的净置换（同边 SWAP 对在乘积中自动消去，$P = \sigma_k\cdots\sigma_2\sigma_1$，执行序从左到右）。**单遍扫描即得**：维护标签置换数组 $\mathrm{arr}[q]$（门 $q\to \mathrm{arr}[q]$ 重标记；遇 SWAP$(a,b)$ 时 $\mathrm{arr}[a],\mathrm{arr}[b]$ 互换），SWAP 一律不发射。输出**零残留 SWAP**；净置换 $P$ 整体吸收进最终布局与测量位置（旧位置 $p$ 的内容在新线路位于 $\mathrm{arr}[p]$）。复杂度 $O(\text{门数})$，与 SWAP 数无关——旧推挤算法需要 $O(\text{交换数})$ 轮才能把全部 SWAP 推到末端（大线路残留上万 SWAP 的根因），折叠一次到位。正确性由态矢量等价验证保证（[scripts/ab_post_fold.py](../scripts/ab_post_fold.py)）。
+其中 $U^{\sigma_{ab}}$ 表示把 $U$ 的作用比特按置换 $\sigma_{ab}$ 重标记后的门——这是置换群作用在门集上的**共轭作用**。三条派生规则（A 组）：
 
-### 5.2 平台基分解与 1Q 门约减
+1. **不相交对易**：$U$ 不触碰 $a,b$ 时 $U^{\sigma_{ab}}=U$，SWAP 直接后移；
+2. **单边触碰重标记**：$\mathrm{SWAP}(a,b);\,\mathrm{CX}(a,c) \;\o\; \mathrm{CX}(b,c);\,\mathrm{SWAP}(a,b)$；
+3. **双边触碰控靶翻转**：$\mathrm{SWAP}(a,b);\,\mathrm{CX}(a,b) \;\o\; \mathrm{CX}(b,a);\,\mathrm{SWAP}(a,b)$（CX 在共轭下交换控制/目标）。
 
-目标平台基为 $[\mathrm{RZ},\,\mathrm{SX},\,\mathrm{X},\,\mathrm{CZ}]$（平台约定：$\mathrm{RZ}(a)=\mathrm{diag}(e^{-ia/2}, e^{ia/2})$，与 qiskit 一致）。CX → H-CZ-H（目标比特上两个 H，H 用 3 门序列 $\mathrm{RZ}(\tfrac{\pi}{2})\,\mathrm{SX}\,\mathrm{RZ}(\tfrac{\pi}{2})$，与 qiskit 2.5 实测分解一致）。单比特门 U3 的通用分解模板（与 qiskit ZSXXZ 模板逐位一致，数值验证 2.5e-16）：
+单比特门与对称双比特门（CZ、异边 SWAP）同理只做重标记。这些规则让 SWAP 单向穿越线路（**只向后推、不振荡**），在末端与相遇的逆 SWAP 抵消（$\mathrm{SWAP}^2 = I$），或进入尾部吸收。
+
+### 5.2 尾部置换吸收与重标记
+
+位于线路最末端、其后没有任何门触碰其比特的 SWAP 对最终测量无影响（比特内容在输出端做了交换而已）：直接删除，并把**最终布局**按该置换更新——输出线路的比特标签 = 物理比特，最终布局记录「逻辑比特内容当前在哪个物理比特」，二者共同构成输出的完整语义。这是路由后 SWAP 归零的主要机制。
+
+### 5.3 平台基分解：U3 的 ZXZ 模板
+
+目标平台基为 $[\mathrm{RZ},\,\mathrm{SX},\,\mathrm{X},\,\mathrm{CZ}]$（平台约定：$\mathrm{RZ}(a)=\mathrm{diag}(e^{-ia/2}, e^{ia/2})$，与 qiskit 一致）。任意单比特门 U3 的通用分解模板（与 qiskit ZSXXZ 模板逐位一致，数值验证 2.5e-16）：
 
 $$
-\mathrm{U3}(\theta,\phi,\lambda) \;\cong\; R_Z(\lambda) \cdot \mathrm{SX} \cdot R_Z(\theta+\pi) \cdot \mathrm{SX} \cdot R_Z(\phi+3\pi), \tag{9}
+\mathrm{U3}(\heta,\phi,\lambda) \;\cong\; R_Z(\lambda) \cdot \mathrm{SX} \cdot R_Z(\heta+\pi) \cdot \mathrm{SX} \cdot R_Z(\phi+3\pi), \ag{9}
 $$
 
-特例：$\mathrm{H}$ 3 门、$\mathrm{X}$ 单门、$\theta=0$ 纯 $R_Z(\phi+\lambda)$。分解后的 1Q 门数经不动点优化约减（对标 qiskit Optimize1qGates）：
-
-1. **1Q 游程合并**：相邻同比特 rz/sx/x 游程矩阵相乘为单一 U3 再合成（相位剥离：1Q 门行列式可为 $i$、$-1$，全局相位物理无关、剥离精确；U3 参数提取按 $\theta = 2\arctan2(|b|,|a|)$、$\alpha=\arg(a)$ 规范，$\theta=\pi$ 分支单独处理）；
-2. **H 块奇偶消解**：$\mathrm{H}^2=I$ 精确成立，相邻 H 块（rz(π/2),sx,rz(π/2)）同比特偶数个整体消去、奇数个保留一个；
-3. **rz 合并**：相邻 rz 角度相加（u1 溶入 H 块相邻 rz）。
-
-游程合并→合成→rz 合并→H 消解循环至不动点；全链路（随机 1Q 游程 → 合并 → 提取 → 合成）5000 次模糊验证最差误差 $3.5\times10^{-13}$。
-
----
+特例：$\mathrm{H} = R_Z(\frac{\pi}{2})\,\mathrm{SX}\,R_Z(\frac{\pi}{2})$（3 门，与 qiskit 2.5 实测分解一致）；$\mathrm{X}$ 直接映射 $\mathrm{X}$ 门；$\heta=0$ 纯 $R_Z(\phi+\lambda)$。CX → H-CZ-H（目标比特上缠绕两个 H），SWAP → 3×CX 各自展开。
 
 ## 6 度量与保真度估计
 
@@ -234,7 +228,7 @@ $$
 ### 7.3 Numba 融合内核
 
 - **`swap_kernel`**（[qtrail/pure/swap_kernel.py](../qtrail/pure/swap_kernel.py)）：候选×前沿距离矩阵单循环融合计算，消除中间 `[C,F]` 数组分配；微基准（C=185, F=120, E=240，105 比特典型规模）**553→109 μs（5.1×）**，与 numpy 花式索引逐位一致（同一 dist 矩阵同一元素的 int64 读取，无浮点差异）；`dist==1 ⟺ 相邻`（无权 BFS 距离）替代 amat 命中计数。
-- **`post_numba`**（[qtrail/pure/post_numba.py](../qtrail/pure/post_numba.py)）：A 组共轭重写规则的 Numba 流式压实内核（200 轮输出逐位一致）——保留为规则级验证基准；交付后处理已升级为单遍置换折叠（§5.1，O(门数) 与 SWAP 数无关）。
+- **`post_numba`**（[qtrail/pure/post_numba.py](../qtrail/pure/post_numba.py)）：push_swaps 流式压实内核（线路 → 并行数组 + 源索引映射，重写不改变门参数故按源索引回填）；qaoa N69 后处理 **1.5s → <0.3s**，200 轮输出逐位一致。
 - 无 Numba 时自动回退纯 Python 等价实现（功能与结果不变，仅速度略降），交付零硬依赖。
 
 ### 7.4 性能剖析（qaoa_barabasi_albert_N69，69 比特 1551 门）
@@ -356,8 +350,8 @@ QTrial 在 CO-MAP 的稀疏奖励 RL 布局范式上完成了三项机制扩展�
 | 式 (4) 指针注意力 | [qtrail/models/decoder.py](../qtrail/models/decoder.py) |
 | 式 (5)(6) REINFORCE | [qtrail/training/reinforce.py](../qtrail/training/reinforce.py) |
 | 式 (7) 交换评分 | [qtrail/pure/router.py](../qtrail/pure/router.py) `sabre_route` |
-| 式 (8)(8') 共轭与折叠 | [qtrail/pure/post.py](../qtrail/pure/post.py) `fold_swaps`（规则级参考：`_swap_past` / post_numba `_swap_past_arr`） |
-| 式 (9) U3 分解 | [qtrail/pure/post.py](../qtrail/pure/post.py) `_u3_to_rzsx`；1Q 优化 `merge_1q_runs`/`_cancel_adjacent_h` |
+| 式 (8) 共轭重写 | [qtrail/pure/post.py](../qtrail/pure/post.py) `_swap_past` / [qtrail/pure/post_numba.py](../qtrail/pure/post_numba.py) `_swap_past_arr` |
+| 式 (9) U3 分解 | [qtrail/pure/post.py](../qtrail/pure/post.py) `_u3_to_rzsx` |
 | 式 (10) 保真度 | [qtrail/pure/metrics.py](../qtrail/pure/metrics.py) `estimate_fidelity` |
 | §4.1 增量维护 | [qtrail/pure/router.py](../qtrail/pure/router.py)（`allowed`/`ext` 事件更新） |
 | §7.3 融合内核 | [qtrail/pure/swap_kernel.py](../qtrail/pure/swap_kernel.py) / [qtrail/pure/post_numba.py](../qtrail/pure/post_numba.py) |
