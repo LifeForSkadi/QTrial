@@ -146,7 +146,12 @@ def absorb_trailing(circ: Circuit, final_layout: dict) -> int:
 
 
 def cancel_cx(circ: Circuit) -> int:
-    """相邻 cx 对消解 + u1 角度合并。返回消解/合并次数。"""
+    """相邻 cx 对消解 + u1 角度合并。返回消解/合并次数。
+
+    注意：cx 抵消要求**同向同对**（cx(a,b)·cx(a,b)=I）；反向对
+    cx(a,b)·cx(b,a) 之积不是恒等，不可抵消（2026-08-22 修复：
+    原无序集合比较误消反向对）。u1 为对角门，同对合并恒合法。
+    swap 抵消在 push_swaps 中按无序对（SWAP 为对称门）。"""
     ops = circ.ops
     removed = 0
     changed = True
@@ -156,7 +161,7 @@ def cancel_cx(circ: Circuit) -> int:
         while i < len(ops) - 1:
             a, b = ops[i], ops[i + 1]
             if a.name == "cx" and b.name == "cx" \
-                    and set(a.qubits) == set(b.qubits):
+                    and a.qubits == b.qubits:
                 del ops[i:i + 2]
                 removed += 1
                 changed = True

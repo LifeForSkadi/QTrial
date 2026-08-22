@@ -343,3 +343,29 @@ cp({lam}) q[0],q[1];
 
 
 
+
+
+def test_cancel_cx_requires_same_direction():
+    """回归：cx(a,b);cx(b,a) 之积非恒等、不可抵消；仅同向同对可抵消。
+
+    2026-08-22 修复：原实现用无序集合比较，误消反向对（LNN 链产生大量
+    反向相邻对后暴露，小例态矢量保真度 0.25）。"""
+    from qtrail.pure.post import cancel_cx
+    # 同向同对 cx(a,b)·cx(a,b)=I → 抵消
+    c1 = Circuit(2)
+    c1.cx(0, 1)
+    c1.cx(0, 1)
+    assert cancel_cx(c1) == 1
+    assert c1.count("cx") == 0
+    # 反向同对 cx(a,b)·cx(b,a)≠I → 不可抵消
+    c2 = Circuit(2)
+    c2.cx(0, 1)
+    c2.cx(1, 0)
+    assert cancel_cx(c2) == 0
+    assert c2.count("cx") == 2
+    # 非同对 → 不可抵消
+    c3 = Circuit(3)
+    c3.cx(0, 1)
+    c3.cx(1, 2)
+    assert cancel_cx(c3) == 0
+    assert c3.count("cx") == 2
