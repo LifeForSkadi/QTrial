@@ -190,10 +190,10 @@ $$
 目标平台基为 $[\mathrm{RZ},\,\mathrm{SX},\,\mathrm{X},\,\mathrm{CZ}]$（平台约定：$\mathrm{RZ}(a)=\mathrm{diag}(e^{-ia/2}, e^{ia/2})$，与 qiskit 一致）。任意单比特门 U3 的通用分解模板（与 qiskit ZSXXZ 模板逐位一致，数值验证 2.5e-16）：
 
 $$
-\mathrm{U3}(\heta,\phi,\lambda) \;\cong\; R_Z(\lambda) \cdot \mathrm{SX} \cdot R_Z(\heta+\pi) \cdot \mathrm{SX} \cdot R_Z(\phi+3\pi), \ag{9}
+\mathrm{U3}(	heta,\phi,\lambda) \;\cong\; R_Z(\lambda) \cdot \mathrm{SX} \cdot R_Z(	heta+\pi) \cdot \mathrm{SX} \cdot R_Z(\phi+3\pi), \ag{9}
 $$
 
-特例：$\mathrm{H} = R_Z(\frac{\pi}{2})\,\mathrm{SX}\,R_Z(\frac{\pi}{2})$（3 门，与 qiskit 2.5 实测分解一致）；$\mathrm{X}$ 直接映射 $\mathrm{X}$ 门；$\heta=0$ 纯 $R_Z(\phi+\lambda)$。CX → H-CZ-H（目标比特上缠绕两个 H），SWAP → 3×CX 各自展开。
+特例：$\mathrm{H} = R_Z(\frac{\pi}{2})\,\mathrm{SX}\,R_Z(\frac{\pi}{2})$（3 门，与 qiskit 2.5 实测分解一致）；$\mathrm{X}$ 直接映射 $\mathrm{X}$ 门；$	heta=0$ 纯 $R_Z(\phi+\lambda)$。CX → H-CZ-H（目标比特上缠绕两个 H），SWAP → 3×CX 各自展开。
 
 ## 6 度量与保真度估计
 
