@@ -1,0 +1,15 @@
+{
+  "n_circuits": 60,
+  "noise_aware": {
+    "mean_static_cost": 366.2,
+    "mean_layout_2q_err": 0.0038422025326723687
+  },
+  "topology_only": {
+    "mean_static_cost": 365.8666666666667,
+    "mean_layout_2q_err": 0.004060894434967621
+  },
+  "delta": {
+    "static_cost_delta_pct": 0.09110787172010859,
+    "layout_2q_err_reduction_pct": 5.385313649429935
+  }
+}

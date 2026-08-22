@@ -1,0 +1,56 @@
+# QTrail 多拓扑 + 大 N 混合训练（方案 4）
+# 设备池：平台网格族 + Sycamore 式砖墙 + heavy-hex + 大网格（承载 QASMBench 433 比特线路）
+model:
+  encoder: gat
+  d: 128
+  gat_layers: 4
+  gat_heads: 8
+  gat_dropout: 0.1
+  norm: graph
+  decoder_heads: 16
+  clamp: 10.0
+  context: concat_project
+  rich_context: true
+  program_features: six
+  device_features: calib
+
+reward:
+  mode: combined
+  dist_mult: 2.0
+  normalize: true
+  depth_lambda: 0.1
+
+graph:
+  temporal_alpha: 0.5
+
+train:
+  seed: 42
+  epochs: 400
+  batch_size: 512
+  episodes_per_epoch: 4096
+  lr: 3.0e-4
+  lr_min: 3.0e-5
+  grad_clip: 1.0
+  entropy_beta: 0.0
+  baseline: self_critic
+  early_stop_patience: 50
+  log_every: 1
+  save_every: 5
+  compile: false
+  random_p: 0.3
+  size_mix: {small: 0.4, medium: 0.3, large: 0.2, huge: 0.1}
+  size_ranges: {small: [5, 40], medium: [41, 80], large: [81, 105],
+                huge: [106, 433]}
+  dataset_mix: {random: 0.5, circuit: 0.5}
+  curriculum: false
+  val_episodes: 112
+  val_seed: 1234
+  pool: data/mqtbench/graph_pool_multitopo.pkl
+  device_pool:
+    - tianyan-287        # 15×7 = 105
+    - grid-8x8           # 64
+    - grid-6x6           # 36
+    - grid-10x10         # 100
+    - sycamore-53        # 53（砖墙）
+    - heavy-hex-115      # 115（六边形）
+    - grid-22x22         # 484（承载 QASMBench 大线路）

@@ -1,0 +1,26 @@
+# 天衍-287 设备配置（单一真相源）
+# 芯片：祖冲之三号同款（arXiv 2412.11924）
+#   105 个 Transmon 数据比特，15 行 x 7 列二维矩形晶格
+#   182 个耦合器（完整 15x7 网格应有 188 条边，6 个位置无耦合器）
+# 内部节点编号：0..104，行优先（index = row*7 + col）
+# 运行时若提供天衍平台 login_key，download_config 的真实拓扑会覆盖本文件。
+name: tianyan-287
+rows: 15
+cols: 7
+
+# 缺失耦合器位置（内部编号 [q0, q1]）。
+# 论文未公开精确位置；默认留空 = 完整 188 边网格。
+# 若从平台 download_config 获得 disabledCouplers，adapter 会自动转换覆盖。
+absent_couplers: []
+disabled_qubits: []
+
+calibration: synthetic
+calibration_seed: 0
+correlated_defects: true
+
+noise:
+  alpha: 0.5
+  beta: 0.1
+  lambda_n: 0.5
+  err2q_clip: [0.2, 5.0]
+  t1_penalty_clip: 2.0

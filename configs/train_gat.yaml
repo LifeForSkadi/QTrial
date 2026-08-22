@@ -1,0 +1,41 @@
+# CO-MAP 复现基线：GAT 编码器 + one-hot 设备特征 + 纯拓扑奖励
+model:
+  encoder: gat
+  d: 128
+  gat_layers: 4
+  gat_heads: 8
+  gat_dropout: 0.1
+  norm: graph
+  decoder_heads: 16
+  clamp: 10.0
+  context: concat_project
+  rich_context: false
+  program_features: six          # 线路图用 6 维特征，随机图自动回退 embedding
+  device_features: onehot        # 论文原版：设备节点 one-hot
+
+reward:
+  mode: topology                 # lambda_n=0，精确复现 CO-MAP
+  dist_mult: 2.0
+  normalize: true
+
+train:
+  seed: 42
+  epochs: 400
+  batch_size: 512
+  episodes_per_epoch: 4096
+  lr: 3.0e-4
+  lr_min: 3.0e-5
+  grad_clip: 1.0
+  entropy_beta: 0.0
+  baseline: self_critic
+  early_stop_patience: 50
+  log_every: 1
+  save_every: 5
+  compile: false
+  random_p: 0.3
+  size_mix: {small: 0.5, medium: 0.3, large: 0.2}
+  size_ranges: {small: [5, 40], medium: [41, 80], large: [81, 105]}
+  dataset_mix: {random: 0.5, circuit: 0.5}
+  curriculum: false
+  val_episodes: 96
+  val_seed: 1234

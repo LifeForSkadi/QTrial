@@ -1,0 +1,52 @@
+{
+  "mqtbench/qft_15": {
+    "mean_swaps": 64.0,
+    "std_swaps": 5.0,
+    "sabre_o1_mean": 64.0
+  },
+  "mqtbench/qaoa_15": {
+    "mean_swaps": 78.0,
+    "std_swaps": 1.0,
+    "sabre_o1_mean": 78.0
+  },
+  "mqtbench/vqe_su2_15": {
+    "mean_swaps": 0.0,
+    "std_swaps": 0.0,
+    "sabre_o1_mean": 0.0
+  },
+  "mqtbench/qpeexact_15": {
+    "mean_swaps": 61.5,
+    "std_swaps": 2.5,
+    "sabre_o1_mean": 61.5
+  },
+  "mqtbench/grover_15": {
+    "mean_swaps": 102350.0,
+    "std_swaps": 42.0,
+    "sabre_o1_mean": 102732.0
+  },
+  "queko/20QBT_45CYC_.0D1_.1D2_0": {
+    "mean_swaps": 9.5,
+    "std_swaps": 1.5,
+    "sabre_o1_mean": 11.0
+  },
+  "queko/20QBT_45CYC_.0D1_.1D2_1": {
+    "mean_swaps": 12.5,
+    "std_swaps": 0.5,
+    "sabre_o1_mean": 12.5
+  },
+  "queko/20QBT_45CYC_.0D1_.1D2_2": {
+    "mean_swaps": 8.0,
+    "std_swaps": 2.0,
+    "sabre_o1_mean": 8.5
+  },
+  "queko/20QBT_45CYC_.0D1_.1D2_3": {
+    "mean_swaps": 6.5,
+    "std_swaps": 0.5,
+    "sabre_o1_mean": 7.5
+  },
+  "queko/20QBT_45CYC_.0D1_.1D2_4": {
+    "mean_swaps": 15.0,
+    "std_swaps": 1.0,
+    "sabre_o1_mean": 17.5
+  }
+}

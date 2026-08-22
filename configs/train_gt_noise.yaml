@@ -1,0 +1,43 @@
+# QTrail 完整版：Graph Transformer 编码器 + 校准特征 + 噪声加权奖励 + 丰富上下文
+model:
+  encoder: gt
+  d: 128
+  gt_layers: 4
+  gt_heads: 8
+  gt_ff: 512
+  gt_dropout: 0.1
+  gt_dist_bias: true             # 设备图注入相对距离偏置 -D/tau
+  gt_tau: 8.0
+  decoder_heads: 16
+  clamp: 10.0
+  context: concat_project
+  rich_context: true
+  program_features: six
+  device_features: calib
+
+reward:
+  mode: combined
+  dist_mult: 2.0
+  normalize: true
+
+train:
+  seed: 42
+  epochs: 400
+  batch_size: 256               # GT 全局注意力显存更大
+  episodes_per_epoch: 4096
+  lr: 3.0e-4
+  lr_min: 3.0e-5
+  grad_clip: 1.0
+  entropy_beta: 0.0
+  baseline: self_critic
+  early_stop_patience: 50
+  log_every: 1
+  save_every: 5
+  compile: false
+  random_p: 0.3
+  size_mix: {small: 0.5, medium: 0.3, large: 0.2}
+  size_ranges: {small: [5, 40], medium: [41, 80], large: [81, 105]}
+  dataset_mix: {random: 0.5, circuit: 0.5}
+  curriculum: false
+  val_episodes: 96
+  val_seed: 1234

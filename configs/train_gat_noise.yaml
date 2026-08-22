@@ -1,0 +1,41 @@
+# 噪声感知变体（QTrail 第 2 维度）：GAT + 校准数据节点特征 + 噪声加权奖励
+model:
+  encoder: gat
+  d: 128
+  gat_layers: 4
+  gat_heads: 8
+  gat_dropout: 0.1
+  norm: graph
+  decoder_heads: 16
+  clamp: 10.0
+  context: concat_project
+  rich_context: true             # 部分分配距离上下文（QTrail 扩展）
+  program_features: six
+  device_features: calib         # 7 维 min-max 归一化校准特征
+
+reward:
+  mode: combined                 # D_eff = D_topo + lambda_n*(D_noise - D_topo)
+  dist_mult: 2.0
+  normalize: true
+
+train:
+  seed: 42
+  epochs: 400
+  batch_size: 512
+  episodes_per_epoch: 4096
+  lr: 3.0e-4
+  lr_min: 3.0e-5
+  grad_clip: 1.0
+  entropy_beta: 0.0
+  baseline: self_critic
+  early_stop_patience: 50
+  log_every: 1
+  save_every: 5
+  compile: false
+  random_p: 0.3
+  size_mix: {small: 0.5, medium: 0.3, large: 0.2}
+  size_ranges: {small: [5, 40], medium: [41, 80], large: [81, 105]}
+  dataset_mix: {random: 0.5, circuit: 0.5}
+  curriculum: false
+  val_episodes: 96
+  val_seed: 1234

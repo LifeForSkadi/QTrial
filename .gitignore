@@ -1,0 +1,27 @@
+# ===== 私有凭据（绝不入库） =====
+.tianyan_key
+
+# ===== Python 环境 =====
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# ===== 运行产物 =====
+out/
+logs/
+*.log
+
+# ===== 大数据集（>1GB，经 tools/ 脚本按需下载） =====
+data/
+
+# ===== 大线路逐条原始数据（可由 scripts/final_report_bench.py 重新生成；
+# 汇总表 report.md / summary_for_docs.md 已入库） =====
+tables/final_report/*.jsonl
+
+# ===== 本地工具配置 =====
+.idea/
+.vscode/

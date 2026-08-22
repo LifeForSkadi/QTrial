@@ -1,0 +1,29 @@
+# QTrial 依赖
+# 竞赛交付管线（python -m qtrail.pure_cli）只需前五项的"交付核心"部分；
+# qiskit/pytket/mqt.bench 仅用于实验对比与数据集生成，交付运行时不需要。
+
+# ---- 交付核心（pure 管线，零 qiskit 可运行）----
+torch>=2.4          # RL 布局策略网络
+numpy>=1.26         # 向量化路由评分
+networkx>=3.2       # 设备图/程序图
+pyyaml>=6.0         # 设备与训练配置
+numba>=0.61         # 路由器/后处理热循环编译加速（可选：缺失时自动回退纯 Python，结果逐位一致）
+
+# ---- 实验对比与基线（内部参照路线）----
+qiskit>=2.4,<3      # 基线（盲目/感知 O1/O3）与训练数据处理；交付管线不依赖
+pytket>=1.30        # pytket 基线（可选，仅对比实验）
+pytket-qiskit>=0.55 # pytket-qiskit 桥（可选）
+
+# ---- 平台集成（可选：提交天衍真机时需要）----
+cqlib>=1.3
+
+# ---- 基准数据生成（可选）----
+mqt.bench>=2.2
+
+# ---- Web 演示（可选）----
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+
+# ---- 测试 ----
+pytest>=8.0

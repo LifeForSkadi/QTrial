@@ -1,0 +1,1078 @@
+
+===== PAGE 1/16 =====
+CO-MAP: A Reinforcement Learning Approach to the
+Qubit Allocation Problem
+Ankit Kulshrestha
+Fujitsu Research of America
+Santa Clara, CA - 95054
+akulshrestha@fujitsu.com
+Xiaoyuan Liu
+Fujitsu Research of America
+Santa Clara, CA - 95054
+xliu@fujitsu.com
+Abstract
+A quantum compiler is a critical piece in the quantum computing pipeline since
+it allows an abstract quantum circuit to be run on a physical quantum computer.
+One extremely important subproblem in quantum compilation is the generation
+of a logical to physical qubit mapping. Typically in quantum compilers this step
+is either implemented as a random or a heuristic based assignment that aims to
+minimize additional (SWAP) gate overhead in the quantum circuit.
+In this paper, we present an alternative approach to solving the qubit mapping prob-
+lem. Specifically, we formulate the qubit mapping problem with a combinatorial
+optimization (CO) objective. We then present a method to find a solution to the
+CO problem by training a reinforcement learning (RL) policy. We also propose a
+local search based post-processing algorithm to further reduce the overhead. Our
+results show a dramatic improvement over conventional techniques in reducing the
+number of SWAPs. On different real world datasets like MQTBench and Queko
+circuits, our trained policy achieves a 65-85% reduction in SWAP overhead when
+compared to existing quantum compilers.
+1
+Introduction
+Quantum computing is touted to the be the next frontier in the field of computer science. The promise
+of so-called “quantum-advantage" has already led to the formulation of several forward looking
+policies including discussions around post-quantum cryptography. As quantum computing devices
+continue to grow in terms of physical qubits and logical error suppression, the need for a quantum
+compiler to grow in lock-step with these advances is not only desirable - it is essential to the success
+of quantum computing.
+Quantum compilers [5, 7] perform a central role in quantum computing since they enable an abstract
+quantum program to be translated into instructions that can be run on actual quantum hardware. There
+is a great variance in quantum hardware technology (e.g. IBM, Fujitsu have superconducting qubit
+architectures [13], while IonQ has ion trap [24] architecture) and connectivity. There are several sub
+stages in quantum compilation but in this work we focus on one of the earliest stages in compilation -
+layout generation and optimization. In quantum computing jargon, this problem is also known as
+qubit mapping or allocation problem [32]. Informally, this stage of the quantum compilation pipeline
+is responsible for coming up with a mapping from program qubits (i.e. the qubits that the quantum
+programmer thinks should interact) to physical qubits while respecting the connectivity constraints
+on the quantum device.
+The general attitude towards qubit mapping is that it is a necessary but unimportant first step towards
+the eventual stage of qubit routing. Thus, most innovations in literature arise from finding algorithms
+to efficiently route qubits instead of finding good layouts for the given quantum program. However,
+we argue that finding a good mapping can significantly reduce the time spent in qubit routing and
+Preprint.
+arXiv:2605.13638v1  [quant-ph]  13 May 2026
+
+===== PAGE 2/16 =====
+q0
+q1
+q2
+q3
+q4
+7 edges
+(a) Program graph Pq
+p2
+p0
+p4
+p1
+p3
+4 edges
+(b) Coupling graph G
+p2
+p0
+p4
+p1
+p3
+q1
+q3
+q0
+q4
+q2
+5 conflicts
+(c) Heuristic Mapping
+satisfied
+needs SWAP
+unused
+Figure 1: Qubit allocation with a given program and device graph. A heuristic mapping places
+the highest degree logical node on the “hub” of the device graph and allocates the neighbors on
+the surrounding qubits. Despite the heuristics, the circuit requires insertion of four SWAP gates to
+manage allocation. This illustrates that no algorithm cannot find perfect mapping from arbitrary
+program graphs to a given topology.
+enhance the performance of the compiler directly. The oversight resulting from the established
+attitude towards this problem motivated us to study it in more detail.
+Our study revealed that most qubit mapping algorithms are heuristical in nature. The heuristics
+themselves are human designed. This very fact renders their generalization to be in question. Thus,
+in this work we formulate qubit mapping differently than in literature and propose a reinforcement
+learning (RL) algorithm that is able to learn general heuristics for qubit mapping and outperforms
+manually tuned algorithms. In brief, we make the following contributions:
+• We formulate the qubit mapping problem in terms of a CO problem and propose a RL
+method that learns to solve the problem.
+• We further demonstrate that our policy network learns data-driven heuristics that generalize
+well beyond the training set and perform exceptionally well on real-world quantum circuits.
+• We introduce a lightweight post-processing algorithm that uses the solution produced by the
+trained policy to further improve the solution. The post-processing algorithm adds minimal
+processing time while delivering 51-88% improvement over the RL solution across different
+datasets.
+2
+Related Work
+There is a rich body of work in quantum compilation that deals with the topic of qubit mapping and
+routing. Siraichi et al [32] define the problem of qubit allocation in terms of boolean satisfiability
+and provide a heuristic algorithm for mapping. IBM’s SABRE [41, 12] proposes a search algorithm
+that iteratively finds mapping that reduces SWAPs. The Quilc [33] compiler proposes to solve
+qubit allocation stage (called “addressing” in the paper) by doing a topological sort on the input
+quantum circuit qubits and iteratively assigning them to the physical device. Liu et al. [22] propose
+a heuristic-driven quadratic unconstrained binary optimization(QUBO) formulation for solving the
+qubit mapping. Recently, Molavi et al [23] proposed a different approach in which they generate a
+quantum compiler given a quantum program and hardware by filling an abstract representation with
+the correct parameters.
+There has been a growing interest in applying RL techniques to the qubit mapping problem. For
+instance, Kremer et al [18] propose to model the qubit routing problem as a sequential decision
+problem and solve it using off-the-shelf policy gradient algorithms. Huang et al [10] propose to
+model qubit mapping as an instance of sequence-to-sequence problem which they solve by using
+Transformer [35] architecture. A related approach that is similar to ours in spirit is proposed by [29]
+where they propose to use CO formulation for a multi-core quantum device architecture and train a
+policy that learns an assignment from a quantum circuit to a particular executable core. Each core is
+2
+
+===== PAGE 3/16 =====
+assumed to have all-to-all connectivity. In contrast, we focus on the much harder single core qubit
+mapping problem with the objective of reducing overall SWAPS for any connectivity pattern in a
+single pass.
+Our proposed approach is built over existing literature on using RL methods for CO problems [3].
+Vinyals et al [37] proposed the original PointerNet architecture that was successively refined to
+solve various standard CO problems like TSP, CVRP etc. [2]. Recently, Kool et al [17] proposed
+an attention model formulation for these problems and it has inspired a fresh research into this
+area [40, 9]. While this work is not an algorithm to solve CO problems in general, we hope to
+innovate quantum-aware RL methods for CO problems in a future work.
+3
+Preliminaries
+Quantum Circuits: In this work, we define a program qubit as a state |ψ⟩= α|0⟩+ β|1⟩; α, β ∈C.
+This program qubit can only be assigned to one physical qubit. This is different from “logical
+qubits” which can occupy multiple physical qubits. A quantum circuit U acts on |ψ⟩to produce
+an output state |ϕ⟩. This output state is then measured w.r.t a traceless Hermitian matrix O (called
+an “observable”) to produce information that can be processed by a classical computer. It is typical
+for quantum circuits to be represented as layers of same operations repeated upto a finite depth i.e.
+U = QL
+ℓ=1 Uℓ. In this stage of compilation we assume that each layer consists of transpiled circuit
+such that U i
+ℓ= e−iW V where W is a non parameterized Hermitian matrix and V represents the
+entanglement between various qubits in the layer. We refer an interested reader to excellent references
+on this subject [26, 6] for more information.
+Quantum Devices and Program Graphs: Physical realization of qubits obey certain constraints
+owing to the topology of the quantum device. An abstract representation of this topology is called a
+coupling graph. Formally, a coupling graph is a graph G = (VQ, EQ) where VQ = {Q1, Q2, . . . QN}
+is the set of all physical qubits and (Qi, Qj) ∈EQ is an edge indicating a physical connection between
+ith and jth qubit. Similarly, entanglement operations in an abstract quantum circuit can be represented
+as a directed program graph Pq = (Vq, Eq) where Vq = {q1, q2, . . . qn} is the set of all participating
+program qubits and (qi, qj) ∈Eq represents a two qubit operation between ith and jth program
+qubits.
+We define the qubit allocation problem as follows:
+Definition 3.1. Qubit Allocation Problem: Given a quantum circuit represented as a program graph
+Pq and a quantum device represented by a coupling graph GQ, the qubit allocation problem is to find
+an assignment Ψ = {qi 7→Qj}j=1...N
+i=1...n such that all interacting pairs of program qubits (qi, qj) ∈Eq
+occupy adjacent positions on Qk, Ql ∈VQ.
+Alternative versions of Definition 3.1 define the problem in terms of boolean satisfiability [32].
+Regardless of the definition, this problem is NP-Complete. In other words, given a program graph
+Pg and a coupling graph GQ, it is impossible to find a perfect mapping Ψ : Vq 7→VQ from a set of
+program qubits q to set of physical qubits Q in polynomial time (Figure 1). We can however propose
+circuit transformations [32] to introduce additional gates that can allow program qubits to be moved
+according to the topology in GQ. One such type of gate is the SWAP gate represents a permutation
+π : Pq 7→P′
+q such that the qi acts in the place of qj and vice versa. The qubit mapping problem can
+then be defined as a CO problem that minimizes the number of SWAPs inserted into the circuit:
+min
+x
+X
+(i,j)∈Eq
+N
+X
+p=1
+N
+X
+k=1
+d(p, k) xi,p xj,k
+(1)
+s.t.
+N
+X
+p=1
+xi,p = 1,
+∀i ∈{1, . . . , n}
+(2)
+n
+X
+i=1
+xi,p ≤1,
+∀p ∈{1, . . . , N}
+(3)
+xi,p ∈{0, 1},
+∀i ∈{1, . . . , n}, p ∈{1, . . . , N}
+3
+
+===== PAGE 4/16 =====
+In Equation 1, we assume N ≥n, so that the quantum program can be executed on the underlying
+quantum device. The number of SWAPs to be inserted naively is considered to be 2 ∗d(p, k) where
+d(p, k) is the physical distance between Qp, Qk ∈VQ. The factor of 2 arises due to the cost of
+applying an additional back SWAP so that the subsequent mapping is not affected. The solution to
+the variable xi,p = 1 represents that we place program qubit i to physical qubit p, and 0 otherwise.
+4
+Neural-CO for Qubit Mapping
+In this section we provide an overview of our method. We first begin by describing the observation
+and action space in our RL formulation. We then describe the architecture of our policy network
+followed by a light weight post-processing algorithm to further enhance the results.
+4.1
+Reinforcement Learning Formulation
+The RL formulation for the CO objective is defined in terms of a model-free MDP (MDP)
+P(S, A, R, γ) with the following definitions:
+State Space: The state space st ∈S consists of the following variables:
+1. Pq: The program graph describing the logical qubit entanglement pattern in the given
+quantum circuit.
+2. GQ: The coupling graph describing the physical connectivity of the quantum device.
+3. Allocation ψ(t) ∈Rn tracks the partial mapping until timestep t.
+4. Distance matrix D ∈RN×N is the distance matrix representing distance between all
+physical qubits given GQ.
+5. Current logical ct tracks the index of current logical qubit under consideration. The terminal
+state occurs when cT = n −1.
+Action Space:
+At a given decoding step we define the feasible action set A(st) = Q \
+{a0, a1, . . . at′<t}. The action set is setup in this way because the constraints in Equation 1 prevent
+us from assigning more than one logical qubit to a single physical qubit. The decoder outputs logits
+over the entire Q but we compute a masked policy:
+πθ(a|st) = exp(fθ(st, a)) · 1[a ∈A(st)]
+P
+a′∈A(st) exp(fθ(st, a′))
+(4)
+Where fθ(st, a) is the logit output from the policy network for the given state st and feasible action
+a.
+Reward Function: In our formulation we do not provide immediate reward to the policy network
+after updating mapping from ψ(t) →ψ(t + 1). Instead, once the terminal state for the given Pq is
+reached, we compute the reward as:
+R(ψT ) = −
+X
+(i,j)∈Eq
+N
+X
+p=1
+N
+X
+k=1
+r(p, k)xi,pxj,k
+(5)
+Where r(p, k) = 2d(p, k) is the SWAP count to excecute a two qubit operation between program
+qubit qi and qj after placing qi 7→Qp and qj 7→Qk. The reward function computes the number of
+SWAPs produced under the current layout while assuming that there is no subsequent routing stage.
+The negation occurs since the CO objective involves minimization while the PG objective maximizes
+the reward by default.
+Training Policy Network: To train the network, we set our objective function to maximize the
+terminal reward:
+J(θ) = Eτ∼πθ [R(ψτ)]
+(6)
+4
+
+===== PAGE 5/16 =====
+We compute the gradient ∇J(θ) using REINFORCE [39] algorithm. However, since our reward
+structure is sparse and the action space is combinatorial we resort to “greedy rollout” baseline
+computation [17] b(st) to reduce the variance:
+∇θJ(θ) = Eτ∼pθ
+" T
+X
+t=0
+(R(ψτ) −b(st))∇θ log πθ(at|st)
+#
+(7)
+4.2
+Policy Network
+To compute the objective in Equation 6, we implement a policy network with an encoder-decoder
+architecture. We describe the architecture of these components in detail below.
+4.2.1
+Encoder
+Encoder
+Norm
+Norm
+Norm
+Norm
+Norm
+Input Node Features
+GAT Aggregation
+LeakyReLU 
+activation
+Norm
+Normalization
+Output Node
+Embeddings
+Message Passing
+Figure 2: The policy network encoder accepts either a program or a coupling graph and produces
+node-level representations using a GNN encoder.
+The encoder showing in Figure 2 is responsible for computing the embeddings of the given Pq and
+GQ. Each vq ∈Pq consists of node features {xi}n
+i=1. For some datasets, we preprocess quantum
+circuits to derive xi ∈R6 features (Refer to Appendix A for more details). For generic datasets, a
+one hot encoding xi ∈Rn is a good initial choice. Nodes VQ ∈GQ also can have preprocessed
+features, although in this study we simply initialize xj
+Q ∈RN with a one hot encoding.
+We denote ˜hq as the node embeddings produced for vq ∈Pq and ˆhQ for the node embeddings
+produced for VQ ∈GQ. Both graphs are processed using an Nℓlayer GAT [36] encoder:
+˜h(ℓ)
+i
+= Norm
+
+
+K
+k=1
+σ
+
+αk
+ijW k,(ℓ)h(ℓ−1)
+j
+
+
+
+(8)
+Where, αk
+ij refers to the pairwise multi-head attention between two nodes vi, vj. Additionally, Norm is
+denotes a type of normalization. We performed experiments with LayerNorm [1], BatchNorm [11] and
+GraphNorm [21]. Out of these three, LayerNorm performs the worst both in terms of overall reward
+and generalization. We found little difference in performance with BatchNorm and GraphNorm.
+4.2.2
+Decoder
+The embeddings {˜hi ∈Rde}n
+i=1 and {ˆhj ∈Rde}N
+j=1 where de is the embedding dimension, enable
+us to perform the iterative decoding step. An example of decoding for t = 0, 1, 2 is shown in Figure 3.
+Context Encoding: Different from encoding Pq, GQ in a common embedding space, the context
+encoder is responsible for creating a fixed dimensional embedding c ∈Rdc that serves as a query for
+5
+
+===== PAGE 6/16 =====
+ 
+Logical qubit
+embedding
+Node 
+Projection
+Concat
+Node
+Projection
+Embedding
+Stack
+Pointer
+Attention
+Attention
+Query
+Contextual
+Embedding 
+Physical Node
+embedding
+Inactive qubit
+embedding
+Affinity
+ 
+Figure 3: The decoder accepts program and coupling graph node embeddings from the encoder. At
+each decoding step, the selected nodes are added to the solution and those nodes are masked out
+(light shaded nodes) during the next step in decoding. At the termination of the process, the reward is
+calculated as the number of SWAPs introduced with the current solution.
+the decoder. The richer the context, the better the placement produced by the algorithm. We propose
+three different ways to compute the context in this work:
+• Project and Concat: For the given current node ct, we compute the previously placed logical
+qubit p = ct−1. The projected embeddings are computed as ˜h′
+c = W ˜hc and ˜h′
+p = W ˜hp
+and W ∈Rde×dc/2. After projection, we derive c = [h′
+c; h′
+p]. Here [; ] is a concatenation
+operation.
+• Concat and Project: Instead of projecting twice, we compute ˜h′ = [˜hc; ˜hp] and then derive
+c = W ˜h′ and W ∈R2de×dc.
+• Stack and Project: In this case we perform the following context derivation:
+c =
+W ˜hc
+t = 0
+W ˜hstack
+p
+t > 0
+(9)
+Where ˜hstack
+p
+∈Rnt×de is the stacked encoding. nt refers to the number of time steps up to
+(and including) the current timestep. Here W ∈Rde×de
+At each step during decoding we use the context encoding c as a query and compute M-head attention
+(M > 1) with ˆhQ. We first project:
+q(c) = WQc;
+ki = WK ˆhi;
+(10)
+Where WQ ∈Rdc×d, WK ∈Rde×d. The attention score between the query and physical node
+embeddings in a single head (Pointer attention in Figure 3) is calculated as:
+Ac
+i = C.tanh
+q(c)⊤ki
+√
+d
+
+(11)
+Following [2], we clamp the attention between [−C, C] using tanh nonlinearity after concatenating
+information from all M heads. We set C = 10 following existing work. This attention is then used to
+compute a masked probability distribution for selection the next action in Equation 4.
+4.3
+Postprocessing Algorithm
+Algorithm 1 outlines the algorithm based on local search [31] to improve the quality of solutions
+proposed by the RL algorithm. It accepts Pq, GQ and the trained policy π(θ∗). To assist in the search
+we define two variants of the neighborhood operation function No:
+6
+
+===== PAGE 7/16 =====
+Algorithm 1 Post Processing Local Search
+Input: Pq, GQ: Program and coupling graphs; fS : A 7→R: SWAP computation function; No:
+Neighborhood op; πθ∗: The trained RL policy, Niters: Number of iterations; P: Patience.
+Output: Abest: Allocation s.t. fS(Abest) ≤fS(Aπ∗) ▷Equality happens if no better assignments
+can be found.
+1: Crl ←fS(Aπ∗) ▷π∗:= π(θ∗) and Aπ∗is the allocation produced by the current trained policy.
+2: Abest, Acurr ←Aπ∗
+3: Cbest, Ccurr ←Crl
+4: p ←0
+5: for i = 1 . . . Niters do
+6:
+Ai ←No(Acurr)
+▷Swaps after applying a local search op
+7:
+Ci ←fS(Ai)
+8:
+if Ci < Ccurr then
+9:
+Acurr ←Ai
+10:
+Ccurr ←Ci
+11:
+if Ccurr < Cbest then
+12:
+Cbest ←Ccurr
+13:
+Abest ←Acurr
+14:
+else
+15:
+p ←p + 1
+16:
+if p > P then
+17:
+break;
+return Abest
+1. Random Swap: This operation selects an assignment qi 7→Qk, qj 7→Ql ∈Acurr and swaps
+them i.e. qj 7→Qk; qi 7→Ql.
+2. Random Assignment: This operation first selects a random physical node Qk ∈GQ. The
+node itself may already have an assignment or be unassigned. In the latter case, we select
+a random qi ∈Pq and perform an assignment qi 7→Qk. In the former, case we swap the
+assignment as above.
+The key difference between the two methods is that we always find assigned physical qubit in the first
+method while the second can include unassigned (and potentially better) physical qubit assignments.
+5
+Details of Training
+We train the policy network by generating random graphs with an edge probability p = 0.3. The
+device graph topology is fixed for a particular policy network. All policy networks use an encoder
+with 4 GATConv layers each with 8 attention heads. The decoder uses M = 16 multi-head attention
+heads. For all components (i.e. encoder, context encoder and decoder) we set embedding dimension
+d = 128.
+The RL training is implemented with the rl4co [4] library. We use a batch size of 512 and a learning
+rate of 3e−4 with the Adam [14] optimizer. During each episode, we consume the program qubits in a
+sequential manner for all program graphs in a batch. We only place the next qubit after the placement
+for the current qubit has been placed. However, we don’t immediately compute the reward. The
+reward is computed at the end of an episode when all qubits in all program graphs have been placed
+according to Equation 5. To train this model, we also use a “rollout baseline” [17] where during
+a given epoch e, we perform a rollout with policy πθe on a randomly generated validation dataset.
+The baseline is then the average reward produced over this dataset. We point out that even though in
+our training we sequentially consume qubits, there is no restriction on the order of consuming the
+qubits. It can be simple as ours to more complex like out-degree dependent scheduling. We leave
+such experiments for future work. We use a single NVIDIA H200 GPU to train the policy network.
+On average for most configurations, training lasts for ∼3 hours.
+We evaluate the trained policy network on data that is completely different than the data generated
+during training. More specifically, we intentionally evaluate the policy on data that is distributionally
+different from the training set. This setup is essential to interpret results below because we cannot
+7
+
+===== PAGE 8/16 =====
+Table 1: Average SWAPs introduced on a 64-qubit grid architecture with different settings of the policy
+network averaged over three independent runs with different seeds. The results are benchmarked
+against Qiskit’s layout and routing stages. Red color indicates the best solution and blue indicates the
+second best solution obtained for the dataset.
+RL
+RL + Post Processing
+Qiskit
+Greedy
+Sampling
+MultiStart
+Greedy
+MultiStart
+Sampling
+Greedy
+Sampling
+MultiStart
+Greedy
+MultiStart
+Sampling
+Mapping
+MQTBench
+88.82 ± 2.0
+90.83 ± 1.6
+96.24 ± 1.4
+95.69 ± 2.4
+45.16 ± 2.3
+51.19 ± 5.2
+47.20 ± 1.3
+45.81 ± 2.1
+264.35
+Queko-16
+22.87 ± 0.2
+24.42 ± 1.0
+24.82 ± 1.4
+23.94 ± 0.7
+0.15 ± 0.02
+0.42 ± 0.1
+0.25 ± 0.04
+0.27 ± 0.03
+0.116
+Queko-20
+52.74 ± 0.4
+53.09 ± 0.2
+53.11 ± 0.2
+52.71 ± 0.6
+6.14 ± 0.1
+6.06 ± 0.3
+5.76 ± 0.1
+6.42 ± 0.2
+147.98
+expect in-distribution data when the policy network is deployed in the compiler. The measure of
+performance is the number of SWAPs obtained after an allocation is obtained. Since one SWAP gate
+adds an overhead of 3 CNOT [32] gates, the more the number of SWAPs the greater the depth of the
+circuit and slower the performance.
+The test data in this works comes from three different datasets. The Munich Quantum Toolkit
+Benchmark (MQTBench) [38] is a dataset consisting of ∼70, 000 circuits with qubits ranging
+from n = 2 to n = 72. The circuits themselves encompass various different quantum tasks like
+VQE [28], QAOA [8], QPE [15, 16] etc. For circuits in this dataset, we perform manual feature
+engineering to extract initial features for the program graphs (see Appendix A). Out of these we
+select circuits consisting of 15 qubits as a good candidate for getting an estimate of the performance.
+We also consider the Queko benchmark [34] for establishing the results on n = {16, 20} qubits. The
+MQTBench test dataset consists of 166 circuits, Queko-16 consists of 180 and Queko-20 consists of
+450 circuits. To benchmark our method, we report the SWAPs obtained by Qiskit’s SABRE [20, 42]
+compiler. To ensure a fair comparison, we isolate the SabreLayout and SabreRouting stages in
+the pipeline and report the results on the SWAPs produced by only these stages.
+For each dataset considered in the study, we perform decoding under four different decoding strate-
+gies [2]. The decoding strategies dictate how the placement is selected from the likelihood distribution
+p(a|s, c, θ∗) = πθ∗(at|st, c<t). The greedy decoding strategy selects at = arg max p(a|s, c, θ∗).
+The sampling strategy selects an action at ∼p(a|s, c, θ∗). The other two strategies are multistart
+versions of greedy and sampling strategies. These strategies perform the same decoding but by
+generating k > 1 solutions and selecting the best performing one. We fix k = 10 in the multistart
+decoding methods in our pipeline.
+6
+Results
+Table 1 summarizes the average SWAPs obtained by our algorithm on the three datasets for an
+8 × 8 grid of N = 64 physical qubits. We report results obtained with and without post-processing
+(Algorithm 1) on all decoding strategies.
+On the MQTBench dataset with n = 15, our method without any post-processing produces 63−66%
+less SWAPs than Qiskit’s algorithm. With post-processing, the SWAPs are reduced by 80 −82%.
+On Queko-16, the RL algorithm performs worse than Qiskit but with post processing closely matches
+the number of SWAPs obtained by the algorithm. On Queko-20, the algorithm again outperforms
+Qiskit’s algorithm by 64% without preprocessing and by 95% with post-processing.
+We further report the end-to-end wall clock time taken by our algorithm vs Qiskit’s compiler in
+Figure 4. Our results are obtained by running the policy network on the test set using a single NVIDIA
+H200 GPU and on a CPU, while Qiskit’s results are reported on the CPU. This is because we do not
+possess a way to run the compilation pipeline of Qiskit on a GPU. The key takeaway from both the
+table and the plot is that our method is faster and produces considerably lower SWAPs in allocating
+8
+
+===== PAGE 9/16 =====
+qubits. We refer the reader to Appendix B for a summary of results on the 65 qubit IBM “heavy
+hex” [25] architecture. For completeness, we also perform experiments with various optimization
+levels of the Qiskit compiler and benchmark the SWAPs against our pipeline in Appendix C and
+report the SWAPs produced for different types of quantum circuits in Appendix D.
+A)
+B)
+Figure 4: Time taken to produce mapping with our method vs Qiskit SABRE compiler. A) shows
+processing times when our pipeline uses a single GPU, B) shows processing times when only CPU is
+used.
+6.1
+Effect of Different Context Encodings
+Table 2: Average SWAPs introduced by policy network trained with different context encoding styles
+on a 64-qubit grid architecture with different context encodings on the MQTBench dataset with 15
+qubit circuits.
+Encoding Strategy
+Greedy
+Sampling
+Multistart Greedy
+Multistart Sampling
+Project and Concat
+97.41
+93.68
+85.86
+85.35
+Concat and Project
+88.82
+90.83
+96.24
+95.69
+Stack and Project
+133.60
+126.79
+135.97
+146.04
+One key component of our architecture is the way we generate context encodings during the decoding
+stage. Intuitively, the context provides a way for the policy network to “see" the decisions made
+in previous time steps. Table 2 shows the average SWAPs obtained by context encoding method
+proposed in Section 4.2.2. From the table it becomes clear that Stack and Project context encoding is
+the worst performing of all schemes. For the other two, we see that “project and concat” performs
+better when the decoding methods are used with k > 1 and “concat and project” works better when
+used with k = 1 decoding.
+7
+Conclusion
+NP Complete problems like qubit allocation typically are approached from either a heuristic perspec-
+tive or application of RL to optimize a proxy metric without regard for the structure of the problem.
+In this paper, we show that an alternative approach exists - if we can frame a given problem as a CO
+problem. Our work demonstrates that RL can outperform heuristic approaches when used in the right
+context.
+There are several avenues that open up from this work. For instance, the role of using other policy
+gradient algorithms like PPO [30] has not been studied. We have also not used complex graph models
+like Graph PointerNets [40] in this work and it will be interesting to see their use in this context.
+Finally,we assume that all device qubits are available with high uptime. In practice, this may strictly
+not be true. Training policy networks that can adapt to dynamic device conditions are left as avenues
+for future work. In addition, in our future work, we would also like to include the qubit routing stage
+into consideration, which would be beneficial to the whole compilation pipeline and make it more
+efficient.
+9
+
+===== PAGE 10/16 =====
+References
+[1] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton. Layer normalization. arXiv preprint
+arXiv:1607.06450, 2016.
+[2] Irwan Bello, Hieu Pham, Quoc V Le, Mohammad Norouzi, and Samy Bengio. Neural combina-
+torial optimization with reinforcement learning. arXiv preprint arXiv:1611.09940, 2016.
+[3] Yoshua Bengio, Andrea Lodi, and Antoine Prouvost. Machine learning for combinatorial
+optimization: a methodological tour d’horizon. European Journal of Operational Research,
+290(2):405–421, 2021.
+[4] Federico Berto, Chuanbo Hua, Junyoung Park, Laurin Luttmann, Yining Ma, Fanchen Bu,
+Jiarui Wang, Haoran Ye, Minsu Kim, Sanghyeok Choi, Nayeli Gast Zepeda, André Hottung,
+Jianan Zhou, Jieyi Bi, Yu Hu, Fei Liu, Hyeonah Kim, Jiwoo Son, Haeyeon Kim, Davide
+Angioni, Wouter Kool, Zhiguang Cao, Jie Zhang, Kijung Shin, Cathy Wu, Sungsoo Ahn, Guojie
+Song, Changhyun Kwon, Lin Xie, and Jinkyoo Park. RL4CO: an Extensive Reinforcement
+Learning for Combinatorial Optimization Benchmark. In Proceedings of the 31st ACM SIGKDD
+Conference on Knowledge Discovery and Data Mining, 2025.
+[5] Jeffrey Booth Jr. Quantum compiler optimizations. arXiv preprint arXiv:1206.3348, 2012.
+[6] Marco Cerezo, Andrew Arrasmith, Ryan Babbush, Simon C Benjamin, Suguru Endo, Keisuke
+Fujii, Jarrod R McClean, Kosuke Mitarai, Xiao Yuan, Lukasz Cincio, et al. Variational quantum
+algorithms. Nature Reviews Physics, 3(9):625–644, 2021.
+[7] Frederic T Chong, Diana Franklin, and Margaret Martonosi. Programming languages and
+compiler design for realistic quantum hardware. Nature, 549(7671):180–187, 2017.
+[8] Edward Farhi, Jeffrey Goldstone, and Sam Gutmann. A quantum approximate optimization
+algorithm. arXiv preprint arXiv:1411.4028, 2014.
+[9] Nathan Grinsztajn, Daniel Furelos-Blanco, Shikha Surana, Clément Bonnet, and Tom Barrett.
+Winner takes it all: Training performant rl populations for combinatorial optimization. Advances
+in Neural Information Processing Systems, 36:48485–48509, 2023.
+[10] Ching-Yao Huang, Chi-Hsiang Lien, and Wai-Kei Mak. Reinforcement learning and dear
+framework for solving the qubit mapping problem. In Proceedings of the 41st IEEE/ACM
+international conference on computer-aided design, pages 1–9, 2022.
+[11] Sergey Ioffe and Christian Szegedy. Batch normalization: Accelerating deep network training
+by reducing internal covariate shift. In International conference on machine learning, pages
+448–456. pmlr, 2015.
+[12] Ali Javadi-Abhari, Matthew Treinish, Kevin Krsulich, Christopher J Wood, Jake Lishman,
+Julien Gacon, Simon Martiel, Paul D Nation, Lev S Bishop, Andrew W Cross, et al. Quantum
+computing with qiskit. arXiv preprint arXiv:2405.08810, 2024.
+[13] Youngseok Kim, Andrew Eddins, Sajant Anand, Ken Xuan Wei, Ewout Van Den Berg, Sami
+Rosenblatt, Hasan Nayfeh, Yantao Wu, Michael Zaletel, Kristan Temme, et al. Evidence for the
+utility of quantum computing before fault tolerance. Nature, 618(7965):500–505, 2023.
+[14] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint
+arXiv:1412.6980, 2014.
+[15] A Yu Kitaev. Quantum measurements and the abelian stabilizer problem. arXiv preprint
+quant-ph/9511026, 1995.
+[16] Alexei Yu Kitaev, Alexander Shen, and Mikhail N Vyalyi. Classical and quantum computation.
+Number 47. American Mathematical Soc., 2002.
+[17] Wouter Kool, Herke Van Hoof, and Max Welling. Attention, learn to solve routing problems!
+arXiv preprint arXiv:1803.08475, 2018.
+10
+
+===== PAGE 11/16 =====
+[18] David Kremer, Victor Villar, Hanhee Paik, Ivan Duran, Ismael Faro, and Juan Cruz-Benito.
+Practical and efficient quantum circuit synthesis and transpiling with reinforcement learning.
+arXiv preprint arXiv:2405.13196, 2024.
+[19] Lorenzo Leone, Salvatore FE Oliviero, Lukasz Cincio, and Marco Cerezo. On the practical
+usefulness of the hardware efficient ansatz. Quantum, 8:1395, 2024.
+[20] Gushu Li, Yufei Ding, and Yuan Xie. Tackling the qubit mapping problem for nisq-era quantum
+devices. In Proceedings of the twenty-fourth international conference on architectural support
+for programming languages and operating systems, pages 1001–1014, 2019.
+[21] Jenny Liu, Aviral Kumar, Jimmy Ba, Jamie Kiros, and Kevin Swersky. Graph normalizing
+flows. Advances in Neural Information Processing Systems, 32, 2019.
+[22] Xiaoyuan Liu, Hayato Ushijima-Mwesigwa, Avradip Mandal, Sarvagya Upadhyay, Ilya Safro,
+and Arnab Roy. Leveraging special-purpose hardware for local search heuristics. Computational
+Optimization and Applications, 82(1):1–29, 2022.
+[23] Abtin Molavi, Amanda Xu, Ethan Cecchetti, Swamit Tannu, and Aws Albarghouthi. Generating
+compilers for qubit mapping and routing. Proceedings of the ACM on Programming Languages,
+10(POPL):2265–2294, 2026.
+[24] Christopher Monroe. Ionq quantum computers: clear to scale. In APS March Meeting Abstracts,
+volume 2021, pages P10–002, 2021.
+[25] Paul Nation. The ibm quantum heavy hex lattice, 2021.
+[26] Michael A Nielsen and Isaac L Chuang. Quantum computation and quantum information.
+Cambridge university press, 2010.
+[27] Lawrence Page, Sergey Brin, Rajeev Motwani, and Terry Winograd. The pagerank citation
+ranking: Bringing order to the web. Technical report, Stanford infolab, 1999.
+[28] A. Peruzzo, J. McClean, P. Shadbolt, M.-H. Yung, X.-Q. Zhou, P. J. Love, A. Aspuru-Guzik,
+and J. L. O’Brien. A variational eigenvalue solver on a photonic quantum processor. Nature
+Communications, 5:4213, 2014.
+[29] Enrico Russo, Maurizio Palesi, Davide Patti, Giuseppe Ascia, and Vincenzo Catania. Attention-
+based deep reinforcement learning for qubit allocation in modular quantum architectures. arXiv
+preprint arXiv:2406.11452, 2024.
+[30] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal
+policy optimization algorithms. arXiv preprint arXiv:1707.06347, 2017.
+[31] Bart Selman and Carla P Gomes. Hill-climbing search. Encyclopedia of cognitive science,
+81(333-335):10, 2006.
+[32] Marcos Yukio Siraichi, Vinícius Fernandes dos Santos, Caroline Collange, and Fernando
+Magno Quintão Pereira. Qubit allocation. In Proceedings of the 2018 international symposium
+on code generation and optimization, pages 113–125, 2018.
+[33] Robert S Smith, Eric C Peterson, Mark G Skilbeck, and Erik J Davis.
+An open-source,
+industrial-strength optimizing compiler for quantum programs. Quantum Science & Technology,
+5(4):044001, 2020.
+[34] Bochen Tan and Jason Cong. Optimality study of existing quantum computing layout synthesis
+tools. IEEE Transactions on Computers, July 2020.
+[35] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
+Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information
+processing systems, 30, 2017.
+[36] Petar Veliˇckovi´c, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro Lio, and Yoshua
+Bengio. Graph attention networks. arXiv preprint arXiv:1710.10903, 2017.
+11
+
+===== PAGE 12/16 =====
+[37] Oriol Vinyals, Meire Fortunato, and Navdeep Jaitly. Pointer networks. Advances in neural
+information processing systems, 28, 2015.
+[38] Robert Wille, Lucas Berent, Tobias Forster, Jagatheesan Kunasaikaran, Kevin Mato, Tom
+Peham, Nils Quetschlich, Damian Rovara, Aaron Sander, Ludwig Schmid, Daniel Schoenberger,
+Yannick Stade, and Lukas Burgholzer. The MQT handbook: A summary of design automation
+tools and software for quantum computing. In IEEE International Conference on Quantum
+Software (QSW), 2024.
+[39] Ronald J Williams. Simple statistical gradient-following algorithms for connectionist reinforce-
+ment learning. Machine learning, 8(3):229–256, 1992.
+[40] Tianmeng Yang, Yujing Wang, Zhihan Yue, Yaming Yang, Yunhai Tong, and Jing Bai. Graph
+pointer neural networks. In Proceedings of the AAAI conference on artificial intelligence,
+volume 36, pages 8832–8839, 2022.
+[41] Emre Yolcu and Barnabás Póczos. Learning local search heuristics for boolean satisfiability.
+Advances in Neural Information Processing Systems, 32, 2019.
+[42] Henry Zou, Matthew Treinish, Kevin Hartman, Alexander Ivrii, and Jake Lishman. Lightsabre:
+A lightweight and enhanced sabre algorithm. arXiv preprint arXiv:2409.08368, 2024.
+12
+
+===== PAGE 13/16 =====
+A
+Pre-Processing Circuit Features for Qubit Allocation
+Our algorithm does not depend on having access to input node features during placement. However,
+having access to good input program node features can definitely improve performance. In this
+section, we detail the feature engineering we perform on an input quantum circuit to generate node
+features for the program graph in the MQTBench dataset. These operations are however independent
+of the dataset and can be applied to any generic quantum circuit as well.
+We process the following features from a given quantum program:
+Single Operation density: The single operation density µj
+s is the ratio:
+µj
+s = ηj
+s
+η
+Where ηj
+s is the number of single qubit gates on qubit j and η is the total number of gates.
+Entanglement Operation Density: The entanglement operation density µj
+m is the ratio:
+µj
+m = ηj
+m
+η
+It is split into two components µj
+c is the control qubit density and µj
+t is the target qubit density. The
+former describes how many control operations are there on a particular qubit while the latter describes
+how many target operations exist on the qubit.
+Qubit Influence: We represent a quantum circuit as a DAG. The influence score Ij ∈[0.0, 1.0] is a
+metric that quantifies how many qubits does the jth qubit “influence” at a r distance random walk.
+Pagerank Centrality Score: We compute the pagerank [27] centrality of a given qubit with a
+damping factor of 0.85. The program graph is represented by ˜
+A = D−1A where A is the DAG
+adjacency matrix representation of the input quantum circuit and D is the node degree matrix.
+Quantum Causal Cone: For each given qubit qi we compute it’s quantum causal cone [19] (Ci
+q).
+This is a conical region that contains all qubits that are affected by any change at qi. Different from
+the influence score above, this metric returns the influence of a qubit in a fixed region. The score is
+computed as:
+SC = Ci
+q
+n
+B
+Benchmark Results on Other Topologies
+Figure 5: The 65-qubit IBM “heavy hex” lattice device graph topology.
+13
+
+===== PAGE 14/16 =====
+Figure 5 shows a IBM “heavy hex” topology consisting of 65 qubits. It has a sparse connectivity
+and thus it is much harder for algorithms to find a good layout. We train our policy network with
+“concat and project” contextual encoding while keeping the rest of the settings the same as above.
+Additionally, we do not employ any optimization in the SABRE layout and routing stages.
+Table 3: Number of SWAPs obtained by our proposed algorithm on the IBM “heavy hex” devices.
+The baseline is the default layout and routing methods provided by IBM’s SABRE Compiler. The
+results are averaged over three seeds; standard deviations are similar to results presented above.
+RL
+RL + Post Processing
+Qiskit
+Greedy
+Sampling
+MultiStart
+Greedy
+MultiStart
+Sampling
+Greedy
+Sampling
+MultiStart
+Greedy
+MultiStart
+Sampling
+Mapping
+MQTBench
+78.99
+70.92
+72.75
+73.33
+25.48
+27.54
+25.54
+26.69
+481.00
+Queko-16
+13.64
+14.51
+14.38
+13.87
+0.02
+0.00
+0.03
+0.03
+273.66
+Queko-20
+30.40
+29.53
+30.58
+29.85
+0.58
+0.66
+0.72
+0.73
+427.39
+Table 3 summarizes the average SWAPs obtained on the heavy-hex topology. As before, our method
+with no post processing outperforms manual heuristic driven method by 85% on MQTBench dataset,
+94% on Queko-16 and 92% on Queko-20 benchmark. With postprocessing the SWAPs are reduced
+by 94% on MQTBench, 99% on Queko-16, 99.8% on Queko-20. Remarkably, on this sparse
+architecture our policy outperforms Qiskit on Queko-16 without requiring post processing.
+C
+Ablation with Qiskit SABRE Optimization Levels
+MQTBench
+Queko-16
+Queko-20
+−20
+0
+20
+40
+60
+80
+100
+120
+Improvement over SABRE (%)
+86%
+95%
+93%
+96%
+100%
+100%
+-8%
+-8%
+-6%
+0%
+0%
+0%
+10%
+2%
+2%
+Ours
+Ours + PP
+SABRE (O1)
+SABRE (O2)
+SABRE (O3)
+Figure 6: Improvements in SWAPs obtained with our solver and various optimization level settings
+for the Qiskit SABRE Compiler on the 65 qubit IBM Heavy-Hex Architecture.
+14
+
+===== PAGE 15/16 =====
+Optimization Level
+Ltr
+Str
+Nmax
+O1
+5
+5
+2
+O2
+20
+20
+4
+O3
+50
+50
+6
+Table 4: Optimization Level Settings for the SABRE Compiler
+qft
+qpeexact
+qwalk-v-chain twolocalrandom
+qnn
+pricingcall
+qaoa
+0
+100
+200
+300
+400
+Number of SWAPs
+90
+96
+101
+111
+91
+104
+89
+43
+53
+34
+36
+36
+86
+30
+60
+63
+425
+174
+117
+101
+1
+random
+graphstate
+ghz
+qpeinexact
+su2random
+qftentangled
+pricingput
+0
+50
+100
+150
+200
+Number of SWAPs
+110
+85
+97
+92
+95
+64
+75
+20
+68
+58
+38
+26
+57
+41
+164
+1
+0
+64
+175
+65
+101
+ae
+vqe
+realamprandom
+dj
+wstate
+grover-v-chain
+portfolioqaoa
+Circuit Types
+0
+1000
+2000
+3000
+4000
+5000
+Number of SWAPs
+115
+107
+123
+61
+107
+85
+116
+59
+21
+43
+47
+41
+59
+56
+52
+0
+176
+4
+0
+4760
+172
+RL
+RL+PP
+Qiskit
+Figure 7: Number of SWAPs produced by our proposed method vs Qiskit SABRE compiler baseline
+for different types of quantum circuits. Our methods (RL, RL+PP) significantly outperform the
+SABRE compiler on most circuit types.
+To demonstrate that we do not cherry pick our results, we perform an ablation in which we vary the
+settings available to us in the SABRE compiler. Specifically, we vary the the number of layout
+trials (Ltr), swap trials (Str) and max iteration(Nmax) settings in SABRELayout call. We
+consider three different optimization levels as shown in Table 4. The results on the IBM Heavy-Hex
+Topology 5 are shown in Figure 6.
+The results report the improvement in SWAPs over baseline. Our baseline here is the O2 optimization
+setting in SABRE Compiler. We can see that a higher optimzation setting leads to a 2 −10%
+improvement over the baseline while O1 setting is 6 −8% worse than baseline. The RL method
+(“Ours”) obtains a 86 −96% improvement over the baseline and with post processing (“Ours + PP”)
+leads to a 100% improvement over the baseline.
+D
+SWAPs Produced for Different Types of Circuits
+In order to benchmark how our method performs on different types of quantum circuits, we gathered
+results on the MQTBench dataset for n = 15 circuits and a 8 × 8(N = 64) grid topology. The
+circuits are divided into 21 different categories corresponding to a particular quantum computing
+15
+
+===== PAGE 16/16 =====
+< 50
+50-100
+100-150
+Number of Gates
+0
+200
+400
+600
+800
+1000
+1200
+1400
+Number of SWAPs
+92
+88
+100
+43
+62
+43
+62
+1372
+117
+RL
+RL+PP
+Qiskit
+Figure 8: Number of SWAPs produced for different number of CNOT gates in program qubits.
+task. We benchmark the SWAPs produced by the policy network (RL) and the SWAPs obtained after
+post-processing (RL+PP) against the Qiskit SABRE compiler with the default settings. Figure 7
+shows the results of our benchmark.
+We can see that our methods (RL, RL+PP) outperform the SABRE Compiler in 18 out of 21
+categories. One instance that we highlight is the significant (97 −98%) reduction obtained over the
+Qiskit SABRE method in the grover-v-chain type circuit. The results are further evidence that
+our method performs well across a variety of circuits as opposed to performing exceptionally well on
+one type of circuit (e.g. QAOA).
+Figure 8 shows the number of SWAPs obtained by our algorithm on the MQTBench datasets compared
+to the number of input CNOT gates in the program graph. While Qiskit outperforms the RL method
+on circuits with less than 50 gates, their scalability drastically worsens as the number of gates in
+the program graph increases. This implies that heuristic based methods may not be a good fit when
+scalability is considered. On the other hand, our trained RL policy introduces less than 100 SWAPs
+for circuits upto 100 CNOT gates. Even for larger circuits, with 100-150 gates, the trained policy
+produces 100 SWAPs on average. The best performance is achieved when post-processing is applied
+to the output of the RL policy. In this case, we achieve less than 100 SWAPs any quantum circuits
+with gates ranging from 0-150.
+16

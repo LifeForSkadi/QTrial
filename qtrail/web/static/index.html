@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QTrial · 量子线路映射优化演示</title>
+<style>
+:root {
+  --bg: #0e1117; --panel: #161b24; --panel2: #1d2430; --border: #2a3342;
+  --text: #dbe3ee; --dim: #8b98ab; --acc: #4cc2ff; --acc2: #7ee081;
+  --warn: #ffb454; --bad: #ff6b6b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: "Segoe UI",
+  "Microsoft YaHei", system-ui, sans-serif; line-height: 1.55; }
+header { padding: 22px 28px; border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #131926, #0e1117); }
+header h1 { font-size: 22px; font-weight: 650; letter-spacing: .5px; }
+header h1 .hl { color: var(--acc); }
+header p { color: var(--dim); font-size: 13px; margin-top: 4px; }
+main { display: grid; grid-template-columns: 430px 1fr; gap: 18px; padding: 20px 28px; }
+.panel { background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px; }
+.panel h2 { font-size: 14px; font-weight: 600; color: var(--dim);
+  text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 12px; }
+textarea { width: 100%; height: 190px; background: var(--panel2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+  font-family: Consolas, monospace; font-size: 12.5px; resize: vertical; }
+textarea:focus { outline: 1px solid var(--acc); }
+.row { display: flex; gap: 10px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+label { font-size: 13px; color: var(--dim); }
+select, input[type=number] { background: var(--panel2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+button { background: var(--acc); color: #04121e; border: none; border-radius: 8px;
+  padding: 10px 18px; font-size: 14px; font-weight: 650; cursor: pointer;
+  transition: filter .15s; }
+button:hover { filter: brightness(1.15); }
+button:disabled { opacity: .5; cursor: wait; }
+button.ghost { background: transparent; border: 1px solid var(--border);
+  color: var(--text); font-weight: 500; padding: 6px 12px; font-size: 12.5px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px; margin-bottom: 14px; }
+.card { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; }
+.card .v { font-size: 21px; font-weight: 700; }
+.card .k { font-size: 11.5px; color: var(--dim); margin-top: 2px; }
+.card.good .v { color: var(--acc2); }
+.card.warn .v { color: var(--warn); }
+.chartbox { margin: 12px 0; }
+.chartbox h3 { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--dim); }
+#gridwrap { display: flex; gap: 14px; flex-wrap: wrap; }
+#grid svg { background: var(--panel2); border-radius: 8px; border: 1px solid var(--border); }
+#legend { font-size: 12px; color: var(--dim); max-width: 300px; }
+#legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  margin-right: 5px; vertical-align: middle; }
+#status { font-size: 13px; color: var(--warn); min-height: 20px; margin-top: 8px; }
+.err { color: var(--bad); }
+.mono { font-family: Consolas, monospace; font-size: 12px; }
+table.cmp { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.cmp th, table.cmp td { padding: 6px 8px; border-bottom: 1px solid var(--border);
+  text-align: right; }
+table.cmp th:first-child, table.cmp td:first-child { text-align: left; }
+.win { color: var(--acc2); font-weight: 700; }
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--dim); font-size: 13px; }
+pre { background: var(--panel2); border-radius: 6px; padding: 10px; overflow: auto;
+  max-height: 260px; font-size: 11.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>QTrial <span class="hl">量子线路映射优化</span>演示</h1>
+  <p>CO-MAP 复现 + QTrail 优化 · 噪声感知强化学习初始映射 · 目标芯片：天衍-287（祖冲之三号同款 105 比特，15×7 网格）</p>
+</header>
+<main>
+  <div class="panel">
+    <h2>输入线路（OpenQASM 2.0）</h2>
+    <textarea id="qasm" placeholder="粘贴 QASM 线路，例如：
+OPENQASM 2.0;
+include &quot;qelib1.inc&quot;;
+qreg q[5];
+h q[0];
+cx q[0],q[1];
+cx q[1],q[2];
+cx q[2],q[3];
+cx q[3],q[4];
+rz(pi/4) q[2];
+cx q[4],q[0];"></textarea>
+    <div class="row">
+      <button class="ghost" id="uploadBtn">📄 上传 .qasm</button>
+      <input type="file" id="fileInput" accept=".qasm" style="display:none">
+      <button class="ghost" id="sampleBtn">示例：QFT-5</button>
+      <button class="ghost" id="sampleBtn2">示例：QAOA-12</button>
+    </div>
+    <div class="row">
+      <label>设备</label>
+      <select id="device">
+        <option value="tianyan-287">天衍-287 (105 比特, 15×7)</option>
+        <option value="grid-8x8">8×8 网格 (64 比特)</option>
+        <option value="grid-3x3">3×3 网格 (9 比特)</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>模型</label>
+      <select id="checkpoint"><option value="auto">自动（最新最优权重）</option></select>
+    </div>
+    <div class="row">
+      <label>随机种子</label>
+      <input type="number" id="seed" value="42" style="width:80px">
+      <label><input type="checkbox" id="compare" checked> 与 Qiskit SABRE 对比</label>
+    </div>
+    <button id="runBtn" style="width:100%">⚡ 执行映射</button>
+    <div id="status"></div>
+  </div>
+
+  <div>
+    <div class="panel" id="resultPanel" style="display:none">
+      <h2>映射结果 <span id="methodTag" style="text-transform:none;letter-spacing:0"></span></h2>
+      <div class="cards" id="cards"></div>
+      <div class="chartbox" id="chartbox" style="display:none">
+        <h3>与 Qiskit SABRE 对比</h3>
+        <div id="charts"></div>
+        <table class="cmp" id="cmpTable"></table>
+      </div>
+      <div class="chartbox">
+        <h3>初始映射可视化（颜色 = 逻辑量子比特，置于天衍-287 15×7 网格）</h3>
+        <div id="gridwrap"><div id="grid"></div><div id="legend"></div></div>
+      </div>
+      <div class="row">
+        <button class="ghost" id="dlQasm">⬇ 下载 mapped.qasm</button>
+        <button class="ghost" id="dlQcis">⬇ 下载 .qcis（天衍平台格式）</button>
+        <button class="ghost" id="dlJson">⬇ 下载 metrics.json</button>
+      </div>
+      <details><summary>mapped.qasm 预览</summary><pre id="qasmPrev" class="mono"></pre></details>
+    </div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let lastResult = null;
+
+// ---------- helpers ----------
+function download(name, text, mime) {
+  const blob = new Blob([text], {type: mime || "text/plain"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function loadCheckpoints() {
+  try {
+    const r = await fetch("/api/checkpoints");
+    const cks = await r.json();
+    const sel = $("checkpoint");
+    cks.forEach(c => {
+      const o = document.createElement("option");
+      o.value = c.path; o.textContent = `${c.name} (${c.size_mb}MB)`;
+      sel.appendChild(o);
+    });
+  } catch (e) { /* ignore */ }
+}
+
+// ---------- samples ----------
+const QFT5 = `OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[5];\n` +
+  Array.from({length: 5}, (_, i) => `h q[${i}];`).join("\n") + "\n" +
+  [ [1,0], [2,0], [2,1], [3,0], [3,1], [3,2], [4,0], [4,1], [4,2], [4,3] ]
+    .map(([c,t]) => `cp(pi/${Math.pow(2,c-t)}) q[${c}],q[${t}];`).join("\n");
+
+const QAOA12 = `OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[12];\n` +
+  Array.from({length: 12}, (_, i) => `h q[${i}];`).join("\n") + "\n" +
+  Array.from({length: 3}, (_, layer) =>
+    Array.from({length: 11}, (_, i) =>
+      `cx q[${i}],q[${i+1}];`).join("\n") + "\n" +
+    Array.from({length: 12}, (_, i) =>
+      `rz(0.35) q[${i}];`).join("\n")).join("\n");
+
+$("sampleBtn").onclick = () => $("qasm").value = QFT5;
+$("sampleBtn2").onclick = () => $("qasm").value = QAOA12;
+$("uploadBtn").onclick = () => $("fileInput").click();
+$("fileInput").onchange = () => {
+  const f = $("fileInput").files[0];
+  if (f) f.text().then(t => $("qasm").value = t);
+};
+
+// ---------- run ----------
+$("runBtn").onclick = async () => {
+  const qasm = $("qasm").value.trim();
+  if (!qasm) { $("status").innerHTML = '<span class="err">请输入或上传 QASM 线路</span>'; return; }
+  $("status").textContent = "运行中…";
+  $("runBtn").disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append("qasm_text", qasm);
+    fd.append("device", $("device").value);
+    fd.append("checkpoint", $("checkpoint").value);
+    fd.append("seed", $("seed").value);
+    fd.append("compare", $("compare").checked);
+    const r = await fetch("/api/map", {method: "POST", body: fd});
+    const data = await r.json();
+    if (data.error) { $("status").innerHTML = `<span class="err">${data.error}</span>`; return; }
+    lastResult = data;
+    render(data);
+    $("status").textContent = data.warnings && data.warnings.length
+      ? "警告: " + data.warnings.join("; ") : "完成 ✔";
+  } catch (e) {
+    $("status").innerHTML = `<span class="err">请求失败: ${e}</span>`;
+  } finally {
+    $("runBtn").disabled = false;
+  }
+};
+
+// ---------- render ----------
+function metricCard(k, v, cls) {
+  return `<div class="card ${cls||''}"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+}
+
+function render(d) {
+  $("resultPanel").style.display = "";
+  const m = d.metrics || {};
+  $("methodTag").innerHTML = `<span class="mono">· 布局方法 ${d.method} · 耗时 ${d.wall_s}s · ${d.device}</span>`;
+  $("cards").innerHTML =
+    metricCard("SWAP 门数", m.swap_count ?? "-", "good") +
+    metricCard("2Q 门总数", m.twoq_count ?? "-") +
+    metricCard("线路深度", m.depth ?? "-") +
+    metricCard("2Q 深度", m.twoq_depth ?? "-") +
+    metricCard("估计保真度", m.est_fidelity != null ? m.est_fidelity.toFixed(4) : "-") +
+    metricCard("门数统计", (m.gate_counts ? Object.entries(m.gate_counts).map(([k,v])=>`${k}:${v}`).join(" ") : "-"));
+
+  // comparison
+  const bl = d.baselines || {};
+  const names = Object.keys(bl);
+  if (names.length) {
+    $("chartbox").style.display = "";
+    const rows = [["方法", "SWAP", "2Q 门", "深度", "保真度"]];
+    rows.push(["QTrial(本方案)", m.swap_count, m.twoq_count, m.depth,
+      m.est_fidelity != null ? m.est_fidelity.toFixed(4) : "-"]);
+    names.forEach(n => {
+      const b = bl[n];
+      rows.push([n, b.error ? "err" : b.swaps, b.error ? "err" : b.twoq,
+        b.error ? "err" : b.depth, b.error ? "err" : b.fidelity.toFixed(4)]);
+    });
+    $("cmpTable").innerHTML = rows.map((r, i) =>
+      `<tr>${r.map((c, j) => {
+        let cell = `<td>${c}</td>`;
+        if (i > 0 && j === 1 && names.length && r[1] !== "err" && !bl[names[i-1]].error
+            && r[1] < bl[names[i-1]].swaps) cell = `<td class="win">${c} ⭐</td>`;
+        return cell;
+      }).join("")}</tr>`).join("");
+
+    // bar charts
+    const metrics = [["SWAP 门数", "swap_count", "swaps", false],
+                     ["线路深度", "depth", "depth", false],
+                     ["估计保真度", "est_fidelity", "fidelity", true]];
+    $("charts").innerHTML = metrics.map(([label, ourKey, baseKey, higher]) => {
+      const ours = ourKey === "swap_count" ? m.swap_count : (ourKey === "depth" ? m.depth : m.est_fidelity);
+      if (ours == null) return "";
+      const entries = [["QTrial", ours]].concat(names.map(n => {
+        const b = bl[n];
+        const v = baseKey === "swaps" ? b.swaps : (baseKey === "depth" ? b.depth : b.fidelity);
+        return [n, b.error ? null : v];
+      })).filter(([, v]) => v != null);
+      const max = Math.max(...entries.map(([, v]) => v));
+      return `<h3 style="font-size:12px;color:var(--dim)">${label}</h3>` +
+        barChart(entries, max);
+    }).join("");
+  }
+
+  drawGrid(d);
+  $("qasmPrev").textContent = d.qasm;
+}
+
+function barChart(entries, max) {
+  const W = 460, BH = 26, GAP = 8, LH = 110;
+  const H = entries.length * (BH + GAP) + 6;
+  let svg = `<svg width="${W}" height="${H}">`;
+  entries.forEach(([name, v], i) => {
+    const y = i * (BH + GAP) + 2;
+    const w = Math.max(3, v / max * (W - LH - 10));
+    const color = i === 0 ? "var(--acc)" : "#5a6b85";
+    svg += `<text x="0" y="${y + BH/2 + 4}" fill="#8b98ab" font-size="11">${name}</text>`;
+    svg += `<rect x="${LH}" y="${y}" width="${w}" height="${BH}" rx="4" fill="${color}"/>`;
+    svg += `<text x="${LH + w + 6}" y="${y + BH/2 + 4}" fill="#dbe3ee" font-size="11">${typeof v === "number" ? (v < 10 ? v.toFixed(4) : v.toFixed(1)) : v}</text>`;
+  });
+  return svg + "</svg>";
+}
+
+// ---------- device grid + layout ----------
+const PALETTE = ["#4cc2ff","#7ee081","#ffb454","#ff6b6b","#c792ea","#5fd0c0","#f78fb3",
+  "#a8d8ea","#f9c74f","#90be6d","#f9844a","#277da1","#b5838d","#9d4edd","#e63946",
+  "#2a9d8f","#e9c46a","#457b9d","#f4a261","#06d6a0"];
+
+async function drawGrid(d) {
+  try {
+    const r = await fetch(`/api/topology/${d.device}`);
+    const topo = await r.json();
+    const rows = Math.max(...topo.nodes.map(n => n.row)) + 1;
+    const cols = Math.max(...topo.nodes.map(n => n.col)) + 1;
+    const cell = 30, pad = 22;
+    const W = cols * cell + pad * 2, H = rows * cell + pad * 2;
+    let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+    topo.edges.forEach(([a, b]) => {
+      const na = topo.nodes[a], nb = topo.nodes[b];
+      svg += `<line x1="${pad + na.col*cell + cell/2}" y1="${pad + na.row*cell + cell/2}"
+        x2="${pad + nb.col*cell + cell/2}" y2="${pad + nb.row*cell + cell/2}"
+        stroke="#39465a" stroke-width="1.2"/>`;
+    });
+    const layout = d.layout || {};
+    topo.nodes.forEach(n => {
+      const x = pad + n.col * cell + cell/2, y = pad + n.row * cell + cell/2;
+      const logical = Object.keys(layout).find(k => layout[k] === n.id);
+      let fill = "#202a3a", r = 8;
+      if (logical != null) {
+        fill = PALETTE[parseInt(logical) % PALETTE.length];
+        r = 10.5;
+      }
+      svg += `<circle cx="${x}" cy="${y}" r="${r}" fill="${fill}" stroke="#4a5870" stroke-width="1"/>`;
+    });
+    svg += "</svg>";
+    $("grid").innerHTML = svg;
+    // legend: logical -> physical
+    const items = Object.entries(layout).sort((a,b) => a[0]-b[0]);
+    $("legend").innerHTML = `<div style="margin-bottom:6px">逻辑 → 物理映射（前 ${Math.min(items.length, 24)} 项）</div>` +
+      items.slice(0, 24).map(([l, p]) =>
+        `<div><span class="swatch" style="background:${PALETTE[parseInt(l)%PALETTE.length]}"></span>q${l} → Q${p}</div>`).join("") +
+      (items.length > 24 ? `<div>… 共 ${items.length} 项</div>` : "");
+  } catch (e) { /* visualization optional */ }
+}
+
+// ---------- downloads ----------
+$("dlQasm").onclick = () => lastResult && download("mapped.qasm", lastResult.qasm, "text/plain");
+$("dlQcis").onclick = () => lastResult && download("mapped.qcis", lastResult.qcis, "text/plain");
+$("dlJson").onclick = () => lastResult && download("metrics.json",
+  JSON.stringify({metrics: lastResult.metrics, method: lastResult.method,
+    layout: lastResult.layout, final_layout: lastResult.final_layout}, null, 2),
+  "application/json");
+
+loadCheckpoints();
+</script>
+</body>
+</html>
