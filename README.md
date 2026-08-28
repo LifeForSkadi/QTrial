@@ -100,6 +100,7 @@ python -m qtrail.pure_cli examples/qft5.qasm
 --rule swap|fidelity|depth        # 候选决胜规则，默认 fidelity
 --seed 42                         # 随机种子
 --checkpoint 路径                 # 换权重（默认用仓库自带 c0.05 权重）
+--fidelity-checkpoint 路径        # 换保真度预测器（QuEst 图 Transformer，默认乘积模型）
 ```
 
 ### 2.2 验一下正确性
@@ -141,7 +142,7 @@ QTrial/
 │   ├── pure_cli.py              # ★ python -m qtrail.pure_cli 的入口
 │   ├── problems/                # 程序图构建 + 节点特征（6 维）
 │   ├── devices/                 # 设备规格：天衍-287 拓扑、距离矩阵、合成校准
-│   ├── models/                  # GAT / GraphTransformer 编码器 + 指针解码器
+│   ├── models/                  # GAT / GraphTransformer 编码器 + 指针解码器（含 LAUREL 残差 / QuEst 保真度预测器）
 │   ├── envs/                    # 终局稀疏奖励
 │   ├── training/                # REINFORCE 训练循环
 │   ├── search/                  # 多起点解码 + 自适应局部搜索
@@ -198,6 +199,8 @@ python tools/generate_mqtbench.py     # → data/mqtbench/graph_pool.pkl（训�
 | `benchmark_goat.py` | 5 编译器同台对比（含 GOAT 调研） |
 | `paper_parity.py` | CO-MAP 论文同设置对照 |
 | `run_training.py` | 一键复现训练（三配置接力） |
+| `train_fidelity.py` | 训练 QuEst 图 Transformer 保真度预测器（含 T1/T2 噪声的 PST 标签） |
+| `compare_models.py` | 多模型测试集并排对比（含 qiskit 基线，原始数据逐线路落盘） |
 
 结果都在 `tables/`，每个文件的含义见 [tables/index.md](tables/index.md)。
 
@@ -208,6 +211,29 @@ python scripts/run_training.py --dev cuda
 ```
 
 三配置接力：GAT 拓扑（CO-MAP 复现基线）→ GAT 噪声感知 → GT 噪声感知。RTX 5090 上总共一小时左右，CPU 也能跑就是慢。权重输出到 `checkpoints/`。
+
+### 4.2 LAUREL 可学习残差与 QuEst 保真度预测器
+
+两项模型侧改进（详见 `docs/module_overview.md`）：
+
+- **LAUREL 残差**（`configs/train_qtrail_laurel.yaml`）：在 v2（深度感知 + 时序加权）基础上，把 GAT 编码器的普通残差替换为可学习残差（`model.laurel: rw_lr`，arXiv:2411.07501）。复现训练：
+
+  ```bash
+  python -m qtrail.train --config configs/train_qtrail_laurel.yaml --dev cuda
+  ```
+
+- **QuEst 保真度预测器**（`scripts/train_fidelity.py`）：训练一个图 Transformer 预测器，替代朴素乘积模型估计保真度——乘积模型只用 ε_1q/ε_2q/ε_ro、**忽略 T1/T2**，预测器把 T1/T2 学进去（arXiv:2210.16724）。训练（需 `qiskit + qiskit-aer`，用小型网格设备生成含 T1/T2 噪声的 PST 标签）：
+
+  ```bash
+  python scripts/train_fidelity.py --n 500 --epochs 20 --out checkpoints
+  ```
+
+  训练后接入交付管线（预测器是纯 PyTorch，管线仍零 qiskit）：
+
+  ```bash
+  python -m qtrail.pure_cli examples/qft5.qasm \
+      --fidelity-checkpoint checkpoints/fidelity_grid-3x3_best.pt
+  ```
 
 ---
 

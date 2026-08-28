@@ -10,12 +10,14 @@ import torch
 import torch.nn as nn
 
 from qtrail.models.layers import init_linear
+from qtrail.models.laurel import LaurelResidual
 
 
 class TransformerLayer(nn.Module):
     """Pre-LN transformer block with optional attention bias."""
 
-    def __init__(self, d: int, heads: int = 8, ff: int = 512, dropout: float = 0.1):
+    def __init__(self, d: int, heads: int = 8, ff: int = 512, dropout: float = 0.1,
+                 laurel: str = "none", laurel_rank: int = 4):
         super().__init__()
         self.norm1 = nn.LayerNorm(d)
         self.mha = nn.MultiheadAttention(d, heads, dropout=dropout, batch_first=True)
@@ -24,14 +26,16 @@ class TransformerLayer(nn.Module):
             nn.Linear(d, ff), nn.GELU(), nn.Dropout(dropout), nn.Linear(ff, d),
             nn.Dropout(dropout),
         )
+        self.laurel_attn = LaurelResidual(d, mode=laurel, rank=laurel_rank)
+        self.laurel_ffn = LaurelResidual(d, mode=laurel, rank=laurel_rank)
 
     def forward(self, x: torch.Tensor, key_pad_mask: torch.Tensor | None = None,
                 bias: torch.Tensor | None = None) -> torch.Tensor:
         h = self.norm1(x)
         att, _ = self.mha(h, h, h, key_padding_mask=key_pad_mask,
                           attn_mask=bias, need_weights=False)
-        x = x + att
-        x = x + self.ffn(self.norm2(x))
+        x = self.laurel_attn(att, x)
+        x = self.laurel_ffn(self.ffn(self.norm2(x)), x)
         return x
 
 
@@ -46,13 +50,15 @@ class GraphTransformerEncoder(nn.Module):
 
     def __init__(self, d: int = 128, layers: int = 4, heads: int = 8,
                  ff: int = 512, dropout: float = 0.1, dist_bias: bool = False,
-                 tau: float = 8.0, bias_from_adj: bool = False):
+                 tau: float = 8.0, bias_from_adj: bool = False,
+                 laurel: str = "none", laurel_rank: int = 4):
         super().__init__()
         self.dist_bias = dist_bias
         self.bias_from_adj = bias_from_adj
         self.tau = tau
         self.layers = nn.ModuleList([
-            TransformerLayer(d, heads=heads, ff=ff, dropout=dropout)
+            TransformerLayer(d, heads=heads, ff=ff, dropout=dropout,
+                             laurel=laurel, laurel_rank=laurel_rank)
             for _ in range(layers)
         ])
         self.apply(init_linear)

@@ -20,8 +20,11 @@ def twoq_count(circ: Circuit) -> int:
     return circ.count_2q()
 
 
-def estimate_fidelity(circ: Circuit, calib) -> float:
-    """乘积模型：Π(1−ε_1q) · Π(1−ε_2q) · Π(1−ε_ro)。与 qiskit 版同口径。"""
+def estimate_fidelity(circ: Circuit, calib, predictor=None) -> float:
+    """保真度估计：predictor 为 None 走乘积模型 Π(1−ε_1q)·Π(1−ε_2q)·Π(1−ε_ro)
+    （与 qiskit 版同口径）；否则走 QuEst 图 Transformer 预测器（可选）。"""
+    if predictor is not None:
+        return predictor.predict(circ, calib)
     f = 1.0
     err2q = calib.err_2q
     median2q = float(np.median(list(err2q.values()))) if err2q else 1e-3
@@ -53,11 +56,11 @@ def mean_twoq_error(circ: Circuit, calib) -> float | None:
     return total_e / total_w if total_w else None
 
 
-def compute_metrics(circ: Circuit, swap_count: int, calib) -> dict:
+def compute_metrics(circ: Circuit, swap_count: int, calib, predictor=None) -> dict:
     return {
         "swap_count": swap_count,
         "twoq_count": twoq_count(circ),
         "depth": circuit_depth(circ),
         "twoq_depth": twoq_depth(circ),
-        "est_fidelity": estimate_fidelity(circ, calib),
+        "est_fidelity": estimate_fidelity(circ, calib, predictor),
     }

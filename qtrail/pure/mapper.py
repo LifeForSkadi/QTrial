@@ -34,7 +34,7 @@ class PureMapper:
 
     def __init__(self, spec, policy=None, cfg=None, dev="cuda", seed=0,
                  selection_rule="swap", lam_ms=0.0, use_post=True,
-                 routing_seeds=1):
+                 routing_seeds=1, fidelity_predictor=None):
         from qtrail.config import Config
         self.spec = spec
         self.policy = policy
@@ -47,6 +47,7 @@ class PureMapper:
         self.lam_ms = lam_ms
         self.use_post = use_post
         self.routing_seeds = routing_seeds
+        self.fidelity_predictor = fidelity_predictor
         self._rng = np.random.default_rng(seed)
         self._dist_eff_cache = {}
 
@@ -74,7 +75,8 @@ class PureMapper:
                 routed, swaps, _ = sabre_route(circ, self.spec, layout,
                                                seed=rseed, lam_ms=self.lam_ms,
                                                max_swaps=cap)
-                m = pure_metrics(routed, swaps, self.spec.calib)
+                m = pure_metrics(routed, swaps, self.spec.calib,
+                                 predictor=self.fidelity_predictor)
                 entry = (m["swap_count"], m["depth"],
                          m["est_fidelity"], pi)
                 if best_entry is None or entry[1] < best_entry[1]:
@@ -167,7 +169,8 @@ class PureMapper:
             routed, removed = post_route(routed, final_layout)
         final_qc = decompose_to_platform(routed)
         metrics = pure_metrics(final_qc, routed.count("swap"),
-                               self.spec.calib)
+                               self.spec.calib,
+                               predictor=self.fidelity_predictor)
         metrics["static_cost"] = float(graph.cost(pi, self.spec.dist,
                                                   dist_mult=2.0))
         metrics["post_absorbed"] = removed

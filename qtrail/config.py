@@ -62,6 +62,8 @@ class ModelConfig:
     rich_context: bool = False       # QTrail ext: partial-allocation distance context
     program_features: str = "six"    # six | onehot
     device_features: str = "calib"   # calib (7-dim) | onehot
+    laurel: str = "none"             # none | rw | lr | rw_lr  (LAUREL 残差，arXiv:2411.07501)
+    laurel_rank: int = 4             # LAUREL-LR 低秩维度 r
 
 
 @dataclass

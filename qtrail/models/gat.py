@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from qtrail.models.layers import make_norm
+from qtrail.models.laurel import LaurelResidual
 
 
 class GATLayer(nn.Module):
@@ -17,7 +18,8 @@ class GATLayer(nn.Module):
 
     def __init__(self, in_dim: int, out_dim: int, heads: int = 8,
                  dropout: float = 0.1, norm: str = "graph",
-                 edge_weight_bias: bool = False):
+                 edge_weight_bias: bool = False, laurel: str = "none",
+                 laurel_rank: int = 4):
         super().__init__()
         self.heads = heads
         self.out_dim = out_dim
@@ -33,6 +35,7 @@ class GATLayer(nn.Module):
         self.residual = in_dim == out_dim
         if not self.residual:
             self.res_lin = nn.Linear(in_dim, out_dim)
+        self.laurel = LaurelResidual(out_dim, mode=laurel, rank=laurel_rank)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -66,7 +69,8 @@ class GATLayer(nn.Module):
         out = out.reshape(B, n, H * dh)
         out = self.out_lin(out)
         res = x if self.residual else self.res_lin(x)
-        out = self.norm(out + res, mask) if mask is not None else out + res
+        out = self.laurel(out, res)
+        out = self.norm(out, mask) if mask is not None else out
         return F.relu(out)
 
 
@@ -75,11 +79,13 @@ class GATEncoder(nn.Module):
 
     def __init__(self, d: int = 128, layers: int = 4, heads: int = 8,
                  dropout: float = 0.1, norm: str = "graph",
-                 edge_weight_bias: bool = False):
+                 edge_weight_bias: bool = False, laurel: str = "none",
+                 laurel_rank: int = 4):
         super().__init__()
         self.layers = nn.ModuleList([
             GATLayer(d, d, heads=heads, dropout=dropout, norm=norm,
-                     edge_weight_bias=edge_weight_bias)
+                     edge_weight_bias=edge_weight_bias,
+                     laurel=laurel, laurel_rank=laurel_rank)
             for _ in range(layers)
         ])
 

@@ -23,6 +23,8 @@ def main():
                     choices=["swap", "fidelity", "depth"],
                     help="候选决胜规则（默认 fidelity，与最终评测同口径）")
     ap.add_argument("--checkpoint", default=None)
+    ap.add_argument("--fidelity-checkpoint", default=None,
+                    help="可选：QuEst 图 Transformer 保真度预测器权重（无则用乘积模型）")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--dev", default=None, choices=["cpu", "cuda"])
     ap.add_argument("--no-post", action="store_true", help="禁用后处理栈")
@@ -58,9 +60,17 @@ def main():
         cfg.model = ck.get("model_cfg", cfg.model)
         cfg.graph = policy.graph_cfg
 
+    fidelity_predictor = None
+    if args.fidelity_checkpoint and Path(args.fidelity_checkpoint).exists():
+        from qtrail.models import FidelityPredictor
+        fidelity_predictor, _ = FidelityPredictor.load_checkpoint(
+            args.fidelity_checkpoint, map_location=dev)
+        fidelity_predictor.eval()
+
     circ = load_qasm_file(args.input)
     mapper = PureMapper(spec, policy=policy, cfg=cfg, dev=dev, seed=args.seed,
-                        selection_rule=args.rule, use_post=not args.no_post)
+                        selection_rule=args.rule, use_post=not args.no_post,
+                        fidelity_predictor=fidelity_predictor)
     res = mapper.map_circuit(circ, circuit_id=Path(args.input).stem)
 
     out_dir = Path(args.output)

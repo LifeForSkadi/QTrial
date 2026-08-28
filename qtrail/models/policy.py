@@ -45,15 +45,21 @@ class QAPolicy(nn.Module):
             self.dev_proj = nn.Embedding(device_n, model.d)
 
         # ---- encoders (shared architecture family via config)
+        # LAUREL 残差（arXiv:2411.07501）：旧 checkpoint 的 model_cfg 无该字段，
+        # 用 getattr 兜底 → 默认 "none" → 行为不变。
+        laurel = getattr(model, "laurel", "none")
+        laurel_rank = getattr(model, "laurel_rank", 4)
         enc_kwargs = dict(d=model.d, layers=model.gat_layers, heads=model.gat_heads,
-                          dropout=model.gat_dropout, norm=model.norm)
+                          dropout=model.gat_dropout, norm=model.norm,
+                          laurel=laurel, laurel_rank=laurel_rank)
         if model.encoder == "gat":
             self.prog_encoder = GATEncoder(**enc_kwargs)
             self.dev_encoder = GATEncoder(**enc_kwargs)
         elif model.encoder == "gt":
             gt_kwargs = dict(d=model.d, layers=model.gt_layers, heads=model.gt_heads,
                              ff=model.gt_ff, dropout=model.gt_dropout,
-                             dist_bias=model.gt_dist_bias, tau=model.gt_tau)
+                             dist_bias=model.gt_dist_bias, tau=model.gt_tau,
+                             laurel=laurel, laurel_rank=laurel_rank)
             self.prog_encoder = GraphTransformerEncoder(**gt_kwargs, bias_from_adj=True)
             self.dev_encoder = GraphTransformerEncoder(**gt_kwargs, bias_from_adj=False)
         else:
