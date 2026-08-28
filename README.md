@@ -170,10 +170,19 @@ QTrial/
 
 ## 4. 数据集与实验
 
-`data/` 下的数据集（大文件已移到项目外备份，需要时拷回来）：
+`data/` 下的数据集不在仓库里（`.gitignore` 排除），用 `tools/` 里的脚本下载/生成即可（全部支持断点续跑，网络走 GitHub API、国内可用）：
+
+```bash
+python tools/download_benchpress.py   # → data/benchpress/qasm/（IBM Qiskit 官方评测基准，656 条）
+python tools/download_queko.py        # → data/Queko/（QUEKO 基准，BIGD/BNTF/BSS）
+python tools/download_qasmbench.py    # → data/QASMBench/（可选，实验报告未使用）
+python tools/generate_mqtbench.py     # → data/mqtbench/graph_pool.pkl（训练图池，--queko 可并入 QUEKO 图）
+```
+
+对应目录说明：
 
 - `data/benchpress/qasm/` — IBM Qiskit 官方评测基准（656 条线路）
-- `data/mqtbench/stratified/` — MQTBench 分层生成缓存；`data/mqtbench/graph_pool_*.pkl` 为训练图池
+- `data/mqtbench/stratified/` — MQTBench 分层评测缓存（由 `scripts/eval_stratified.py` 运行时用 mqt.bench 自动生成）；`data/mqtbench/graph_pool_*.pkl` 为训练图池
 - `data/Queko/` — QUEKO 基准（BIGD/BNTF/BSS）
 
 主要实验脚本（`scripts/`）：
