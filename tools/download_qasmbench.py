@@ -6,7 +6,8 @@ import urllib.request
 from pathlib import Path
 
 REPO = "pnnl/QASMBench"
-OUT_DIR = Path(r"f:\Study\Quantum Computing\信安竞赛\QTrial\data\QASMBench")
+REPO_ROOT = Path(__file__).resolve().parent.parent   # 仓库根（相对脚本位置）
+OUT_DIR = REPO_ROOT / "data" / "QASMBench"
 
 
 def api_get(path: str) -> dict:

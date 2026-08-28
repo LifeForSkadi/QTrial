@@ -1,6 +1,6 @@
 """Generate the MQTBench program-graph pool for training + eval subsets.
 
-Usage: python scripts/generate_mqtbench.py [--sizes 10,15,20,25] [--out data/mqtbench/graph_pool.pkl]
+Usage: python tools/generate_mqtbench.py [--sizes 10,15,20,25] [--out data/mqtbench/graph_pool.pkl]
 """
 from __future__ import annotations
 

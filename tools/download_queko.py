@@ -7,7 +7,8 @@ from pathlib import Path
 
 REPO = "qu-tan-um/QUEKO-benchmark"
 BRANCH = "master"
-OUT_DIR = Path(r"f:\Study\Quantum Computing\信安竞赛\QTrial\data\Queko")
+REPO_ROOT = Path(__file__).resolve().parent.parent   # 仓库根（相对脚本位置）
+OUT_DIR = REPO_ROOT / "data" / "Queko"
 
 
 def api_get(path: str) -> dict:
