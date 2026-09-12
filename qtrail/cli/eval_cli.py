@@ -40,6 +40,25 @@ def load_benchmark_circuits(bench: str, limit: int | None) -> list:
                 continue
         if limit:
             out = out[:limit]
+    elif bench == "benchpress":
+        # Qiskit 官方测评基准（data/benchpress/qasm/<类别>/<文件>.qasm），
+        # 跳过 *_transpiled 变体、仅 ≤105 比特（设备规模内）
+        from qtrail.utils.qasm_io import load_qasm2
+        files = sorted(Path("data/benchpress/qasm").rglob("*.qasm"))
+        n_out = 0
+        for p in files:
+            if "_transpiled" in p.name:
+                continue
+            try:
+                qc = load_qasm2(p)
+            except Exception:
+                continue
+            if qc.num_qubits > 105 or qc.num_qubits < 4:
+                continue
+            out.append((f"benchpress/{p.parent.name}/{p.stem}", qc))
+            n_out += 1
+            if limit and n_out >= limit:
+                break
     elif bench == "custom":
         raise ValueError("custom benchmark needs explicit file list; use --files")
     else:

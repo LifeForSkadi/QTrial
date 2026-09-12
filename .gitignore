@@ -25,3 +25,8 @@ tables/final_report/*.jsonl
 # ===== 本地工具配置 =====
 .idea/
 .vscode/
+
+# ===== 组内交流材料（不随仓库分发） =====
+研究进展汇报.md
+研究进展讲稿.md
+tables/report_figures/slides/
