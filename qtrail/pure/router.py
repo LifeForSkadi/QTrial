@@ -50,6 +50,9 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 tabu_scope: str = "edge", tabu_count: bool = False,
                 lookahead_w: float = 0.5, noise_w: float = 0.0,
                 noise_tie: float = 0.0,
+                decay_inc: float = 0.0, decay_reset: int = 5,
+                scorer=None, scorer_sample: bool = False,
+                scorer_temp: float = 1.0, scorer_stats: dict | None = None,
                 max_swaps: int = 100000, trials: int = 1):
     """返回 (routed: Circuit[物理空间], swap_count, final_layout)。
 
@@ -69,6 +72,11 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
       1.0 还是精确同分均劣化换数：dtc_100 4488→7838，低误差边形成
       路由陷阱；保留供后续研究，勿作默认）。
     trials>1 时多种子路由取 swap 最少者（种子 = seed..seed+trials-1）。
+
+    scorer（学习式评分器，默认 None）：传入 RouteScorer 时评分改由
+    MLP 给出（特征 = 距离分量/步龄/边误差/度/窗口使用次数，见
+    rl_score.py）；scorer_sample=True 时 softmax 采样并把 logp/熵累
+    计进 scorer_stats（REINFORCE 训练用），否则贪心 argmax。
     """
     if trials > 1:
         best = None
@@ -78,7 +86,10 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 w_ext=w_ext, decay_pen=decay_pen, tabu_window=tabu_window,
                 tabu_mult=tabu_mult, tabu_decay=tabu_decay,
                 tabu_scope=tabu_scope, tabu_count=tabu_count,
-                lookahead_w=lookahead_w,
+                lookahead_w=lookahead_w, noise_w=noise_w,
+                noise_tie=noise_tie, scorer=scorer,
+                scorer_sample=scorer_sample, scorer_temp=scorer_temp,
+                scorer_stats=scorer_stats,
                 max_swaps=max_swaps, trials=1)
             if best is None or swaps < best[1]:
                 best = (routed, swaps, fin)
@@ -109,8 +120,8 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         dist = dist.astype(np.float64) * scale
     dist_flat = dist.ravel()
     edge_err = None
-    if noise_tie > 0.0:
-        # 噪声感知平局裁决用：逐边校准误差（缺失边取中位）
+    if noise_tie > 0.0 or scorer is not None:
+        # 逐边校准误差（缺失边取中位）：噪声平局裁决 / 评分器特征用
         err2q = spec.calib.err_2q
         med = float(np.median(list(err2q.values()))) if err2q else 1e-3
         edge_err = np.full(spec.n * spec.n, med, dtype=np.float64)
@@ -140,11 +151,20 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 ext.add(s)
     out = Circuit(spec.n, name=circ.name + "_routed")
     swap_count = 0
+    batch = []  # 自上次进展以来的交换批（逃逸回卷用）
     wext = w_ext if w_ext is not None else 0.5 / spec.n
     # 禁忌表：物理边/比特上次被选为交换的步号（-1 = 从未）
     last_edge = np.full(spec.n * spec.n, -1, dtype=np.int64)
     last_qubit = np.full(spec.n, -1, dtype=np.int64)
     recent_edges = []
+    edge_hist = np.zeros(spec.n * spec.n, dtype=np.float32)
+    deg = np.array([len(nb) for nb in nbrs], dtype=np.float32)
+    # decay 启发式（2026-11-12，对齐 qiskit heuristic.rs 的 DecayHeuristic：
+    # 每比特乘数 1.0 起、每次交换 +increment、每 decay_reset 次交换或每次
+    # 路由进展时全体重置；评分整体 × max(乘数)。极轻微扰动——打破对称
+    # 平局而非惩罚。此前 ×1000 禁忌实验失败即因尺度错了 6 个数量级）
+    decay = np.ones(spec.n, dtype=np.float64)
+    decay_steps = 0
     since_exec = 0
     attempt_limit = 10 * circ.n
 
@@ -163,6 +183,9 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                     or amat[pos[ops[i].qubits[0]], pos[ops[i].qubits[1]]]]
         if exec_now:
             since_exec = 0
+            batch.clear()
+            decay.fill(1.0)      # 进展点：decay 窗口重置（qiskit 语义）
+            decay_steps = 0
             # 按线路原始序执行（= DAG 拓扑序；qiskit 语义）——set 任意序
             # 会打散前沿形状、劣化后续交换决策（2026-11-10 诊断）
             for i in sorted(exec_now):
@@ -214,17 +237,20 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         ea_ = np.array([a for a, _ in cand], dtype=np.int64)
         eb_ = np.array([b for _, b in cand], dtype=np.int64)
 
-        # 融合内核：直接产出 [候选×前沿] 距离矩阵（dist==1 ⟺ 相邻）
+        # 绝对距离和评分（经典 SABRE；qiskit LightSABRE 的边际评分
+        # 复现实验 2026-11-12 未获益——其 lookahead 层的额外机制
+        # 未能从源码反推，保留我们的双步前瞻差异化）
         Df = after_dist_matrix(dist_flat, spec.n, fq1, fq2, ea_, eb_)
         basic = Df.sum(axis=1)
         unlocked = (Df == 1).sum(axis=1)
         De = after_dist_matrix(dist_flat, spec.n, eq1, eq2, ea_, eb_)
         ext_cost = De.sum(axis=1)
         ms_delta = 1.0 - unlocked / max(len(fq1), 1)
-        if lookahead_w > 0.0:
-            # 前瞻（SABRE Algorithm 3 / qiskit lookahead）：每候选 s 先
-            # 换位得到前沿新位置，再枚举后续交换 s2（排除自身）取最优
-            # 代价，加权加入评分——惩罚"第一步就把路走死"的候选
+        h2 = None
+        if lookahead_w > 0.0 or scorer is not None:
+            # 前瞻（SABRE Algorithm 3）：每候选 s 先换位得到前沿新位置，
+            # 再枚举后续交换 s2（排除自身）取最优代价——惩罚"第一步就
+            # 把路走死"的候选（scorer 模式作为评分器特征）
             P1 = np.where(fq1[None, :] == ea_[:, None], eb_[:, None],
                           np.where(fq1[None, :] == eb_[:, None],
                                    ea_[:, None], fq1[None, :]))
@@ -238,47 +264,148 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 v = D2.sum(axis=1).astype(np.float64)
                 v[c] = np.inf  # 排除自身（两次同边换位=恒等，无信息）
                 h2[c] = v.min()
-            scores = basic + wext * ext_cost + lookahead_w * h2
-        else:
-            scores = basic + wext * ext_cost
-        # 有界禁忌（对标 qiskit decay(0.001, 5)）：重复使用刚交换过的
-        # 边/比特 ×tabu_mult；count 模式按窗口内使用次数 k 取 tabu_mult^k
-        if tabu_window > 0 and swap_count > 0:
-            if tabu_count:
-                mult = np.ones(len(cand))
-                for (ra, rb) in recent_edges:
-                    hit = (ea_ == ra) & (eb_ == rb)
-                    if hit.any():
-                        mult[hit] *= tabu_mult
-                scores = scores * mult
-            elif tabu_scope == "both":
-                # 组合：按比特温和平滑（×3 半衰）+ 按边硬窗口（×tabu_mult）
-                aq = swap_count - np.maximum(last_qubit[ea_], last_qubit[eb_])
-                scores = scores * (1.0 + 2.0 * (0.5 ** aq.astype(np.float64)))
-                ae = swap_count - last_edge[ea_ * spec.n + eb_]
-                touch = ae <= tabu_window
-                if touch.any():
-                    scores = scores * np.where(touch, tabu_mult, 1.0)
-            else:
-                if tabu_scope == "edge":
-                    age = swap_count - last_edge[ea_ * spec.n + eb_]
-                else:
-                    age = swap_count - np.maximum(last_qubit[ea_],
-                                                  last_qubit[eb_])
-                if tabu_decay > 0.0:
-                    mult = 1.0 + (tabu_mult - 1.0) * (
-                        tabu_decay ** age.astype(np.float64))
-                    scores = scores * mult
-                else:
-                    touch = age <= tabu_window
-                    if touch.any():
-                        scores = scores * np.where(touch, tabu_mult, 1.0)
-        scores = scores + lam_ms * ms_delta
+        scores = basic + wext * ext_cost + (lookahead_w * h2 if h2 is not None
+                                            else 0.0)
+        if decay_inc > 0.0:
+            # decay：整体 × max(乘数)（qiskit DecayHeuristic 语义）
+            scores = scores * np.maximum(decay[ea_], decay[eb_])
 
         if since_exec >= attempt_limit:
-            # 防卡死逃逸：连续 10n 次无门执行的交换后随机换边
-            pick = int(rng.integers(0, len(cand)))
+            # 防卡死逃逸（qiskit 语义，2026-11-12 对齐）：
+            # 回卷当前交换批到上次进展点，贪心把距离最小的前沿门
+            # 的比特沿最短路径拉到相邻（force_enable_closest_node）
+            for (ra, rb) in reversed(batch):
+                out.ops.pop()
+                swap_count -= 1
+                la, lb = inv.get(ra), inv.get(rb)
+                if la is not None:
+                    inv.pop(ra, None)
+                    pos[la] = rb
+                if lb is not None:
+                    inv.pop(rb, None)
+                    pos[lb] = ra
+                if la is not None:
+                    inv[rb] = la
+                if lb is not None:
+                    inv[ra] = lb
+            batch.clear()
+            since_exec = 0
+            # 最近门贪心拉近：沿 BFS 最短路径逐边移动
+            best_gate = None
+            best_d = 10 ** 9
+            for i in frontier:
+                if len(ops[i].qubits) == 2:
+                    d = int(dist[pos[ops[i].qubits[0]], pos[ops[i].qubits[1]]])
+                    if d < best_d:
+                        best_d = d
+                        best_gate = i
+            if best_gate is not None and best_d > 1:
+                q0 = pos[ops[best_gate].qubits[0]]
+                q1 = pos[ops[best_gate].qubits[1]]
+                # BFS 最短路径（q0 → q1）
+                prev = {q0: None}
+                from collections import deque
+                dq = deque([q0])
+                while dq:
+                    u = dq.popleft()
+                    if u == q1:
+                        break
+                    for v in nbrs[u]:
+                        if v not in prev:
+                            prev[v] = u
+                            dq.append(v)
+                if q1 in prev:
+                    path = []
+                    u = q1
+                    while u is not None:
+                        path.append(u)
+                        u = prev[u]
+                    path.reverse()
+                    for k in range(len(path) - 1):
+                        a, b = path[k], path[k + 1]
+                        out.append(Inst("swap", (a, b)))
+                        swap_count += 1
+                        batch.append((a, b))
+                        la, lb = inv.get(a), inv.get(b)
+                        if la is not None:
+                            inv.pop(a, None)
+                            pos[la] = b
+                        if lb is not None:
+                            inv.pop(b, None)
+                            pos[lb] = a
+                        if la is not None:
+                            inv[b] = la
+                        if lb is not None:
+                            inv[a] = lb
+            continue
+        elif scorer is not None:
+            # 学习式评分（rl_score.RouteScorer）：MLP 特征打分
+            # （距离分量/步龄/边误差/度/窗口使用次数），采样或贪心
+            import torch
+            nF = max(len(fq1), 1)
+            nE = max(len(eq1), 1)
+            F = np.empty((len(cand), 9), dtype=np.float32)
+            F[:, 0] = basic / nF
+            F[:, 1] = ext_cost / nE
+            F[:, 2] = h2 / nF
+            F[:, 3] = unlocked / nF
+            F[:, 4] = np.minimum(
+                (swap_count - last_edge[ea_ * spec.n + eb_]) / 20.0, 1.0)
+            F[:, 5] = np.minimum((swap_count - np.maximum(
+                last_qubit[ea_], last_qubit[eb_])) / 20.0, 1.0)
+            F[:, 6] = edge_err[ea_ * spec.n + eb_]
+            F[:, 7] = (deg[ea_] + deg[eb_]) / 10.0
+            F[:, 8] = np.minimum(edge_hist[ea_ * spec.n + eb_] / 5.0, 1.0)
+            st = scorer(torch.from_numpy(F),
+                        torch.from_numpy(scores).float())
+            if scorer_sample:
+                pick, logp, ent = scorer.sample_pick(st, scorer_temp)
+                if scorer_stats is not None:
+                    scorer_stats["logp"] += float(logp.detach())
+                    scorer_stats["entropy"] += float(ent.detach())
+                    # 保留计算图的逐步累加（REINFORCE 反向传播）
+                    scorer_stats["logp_t"] = \
+                        scorer_stats.get("logp_t", 0.0) + logp
+                    scorer_stats["ent_t"] = \
+                        scorer_stats.get("ent_t", 0.0) + ent
+            else:
+                pick = scorer.greedy_pick(st)
         else:
+            # 有界禁忌（对标 qiskit decay(0.001, 5)）：重复使用刚交换
+            # 过的边/比特 ×tabu_mult；count 模式按窗口使用次数取幂
+            if tabu_window > 0 and swap_count > 0:
+                if tabu_count:
+                    mult = np.ones(len(cand))
+                    for (ra, rb) in recent_edges:
+                        hit = (ea_ == ra) & (eb_ == rb)
+                        if hit.any():
+                            mult[hit] *= tabu_mult
+                    scores = scores * mult
+                elif tabu_scope == "both":
+                    # 组合：按比特温和平滑（×3 半衰）+ 按边硬窗口
+                    aq = swap_count - np.maximum(last_qubit[ea_],
+                                                 last_qubit[eb_])
+                    scores = scores * (1.0 + 2.0 * (
+                        0.5 ** aq.astype(np.float64)))
+                    ae = swap_count - last_edge[ea_ * spec.n + eb_]
+                    touch = ae <= tabu_window
+                    if touch.any():
+                        scores = scores * np.where(touch, tabu_mult, 1.0)
+                else:
+                    if tabu_scope == "edge":
+                        age = swap_count - last_edge[ea_ * spec.n + eb_]
+                    else:
+                        age = swap_count - np.maximum(last_qubit[ea_],
+                                                      last_qubit[eb_])
+                    if tabu_decay > 0.0:
+                        mult = 1.0 + (tabu_mult - 1.0) * (
+                            tabu_decay ** age.astype(np.float64))
+                        scores = scores * mult
+                    else:
+                        touch = age <= tabu_window
+                        if touch.any():
+                            scores = scores * np.where(touch, tabu_mult, 1.0)
+            scores = scores + lam_ms * ms_delta
             # 平局裁决：评分在最优+noise_tie 容差内的候选按边误差升序
             # （噪声感知，qiskit 无此机制）；误差同分时种子随机
             sbest = scores.min()
@@ -292,12 +419,23 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         out.append(Inst("swap", (a, b)))
         swap_count += 1
         since_exec += 1
+        batch.append((a, b))
         last_edge[a * spec.n + b] = swap_count
         last_qubit[a] = swap_count
         last_qubit[b] = swap_count
         recent_edges.append((a, b))
+        edge_hist[a * spec.n + b] += 1.0
         if len(recent_edges) > tabu_window:
-            recent_edges.pop(0)
+            oa, ob = recent_edges.pop(0)
+            edge_hist[oa * spec.n + ob] -= 1.0
+        if decay_inc > 0.0:
+            decay_steps += 1
+            if decay_steps >= decay_reset:
+                decay.fill(1.0)
+                decay_steps = 0
+            else:
+                decay[a] += decay_inc
+                decay[b] += decay_inc
         la, lb = inv.get(a), inv.get(b)
         if la is not None:
             del inv[a]
