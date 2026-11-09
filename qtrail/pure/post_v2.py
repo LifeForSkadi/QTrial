@@ -139,6 +139,35 @@ def _is_h_block(ops, i):
             and abs(ops[i + 2].params[0] - H_GATE[0]) < 1e-9)
 
 
+def slide_1q_through(out_ops: list, max_rounds: int = 6) -> int:
+    """B7 组件：1Q 门跨门通勤滑动（对标 Optimize1qGates 的核心语义）。
+
+    rz/sx/x 与"比特不相交"的任意门对易：把 1Q 门滑过不相交的 2Q
+    门，使同一比特的 1Q 门聚拢成相邻游程——随后 merge_1q_runs 可
+    合并合成。单调：只滑动（每轮净移动 ≥1 才继续），绝不凭空重排
+    2Q 门。返回滑动次数。
+    """
+    moved_total = 0
+    for _ in range(max_rounds):
+        moved = 0
+        i = 0
+        n = len(out_ops)
+        while i < n - 1:
+            a, b = out_ops[i], out_ops[i + 1]
+            if a.name in ("rz", "sx", "x") and a.nq == 1 \
+                    and b.nq >= 1 and int(a.qubits[0]) not in b.qubits:
+                # a 与 b 比特不相交 → 对易，a 右移
+                out_ops[i], out_ops[i + 1] = b, a
+                moved += 1
+                i += 1
+            else:
+                i += 1
+        moved_total += moved
+        if moved == 0:
+            break
+    return moved_total
+
+
 def _strip_identity_1q(out_ops: list) -> int:
     """B4 组件：恒等 1Q 门移除（对标 RemoveIdentityEquivalent）。
 
@@ -855,6 +884,7 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
             changed = True
         merge_adjacent_rz(out)
         before = len(out.ops)
+        slide_1q_through(out.ops)        # B7：1Q 跨门通勤聚拢
         commute_rz_through_cz(out.ops)   # A2：可交换消解
         _absorb_h(out.ops)               # B5：H·rz·H → rx（H 吸收）
         _cancel_adjacent_cz(out.ops)     # B6：cz·cz = I（补全 cx·cx 消解链）
