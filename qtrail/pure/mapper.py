@@ -199,12 +199,13 @@ class PureMapper:
         routed_v4 = routed.copy()
         fin_v4 = dict(final_layout)
         final_qc_v4 = decompose_to_platform(routed_v4)
-        adopted_relabel = False
+
+        # ---- 三候选后处理路径，代理评分按决胜规则选优（2026-11-12：
+        # 重标记/折叠结果劣于裸路由时必须回退——gf2^7/dt_100 实测教训）
+        cands = []
+        # 候选 1：全局重标记路径（fold_only 坐标折叠 → 固定嵌入置换
+        # → 全量链化）
         if relabel_budget is not None:
-            # 全局重标记：先纯坐标折叠（恒正确）→ 固定嵌入置换作用于
-            # 坐标稳定的线路（fold_only 产物）→ 链化残留长程门
-            # （A5）。精确嵌入 = 0-SWAP 全相邻；部分嵌入 = 噪声加权
-            # 边质量改善（非劣化开关兜底裁决）。
             from qtrail.pure.relabel_vf2 import global_relabel
             from qtrail.pure.post_v2 import chain_long_gates
             folded_only, arr_only = fold_only(routed)
@@ -212,20 +213,31 @@ class PureMapper:
                                  time_budget=relabel_budget)
             if res is not None:
                 relabeled, mapping, _exact = res
-                routed, _ = chain_long_gates(relabeled, self.spec)
-                adopted_relabel = True
+                ra, _ = chain_long_gates(relabeled, self.spec)
+                fla = {}
                 for k, v in final_layout.items():
-                    final_layout[k] = int(mapping.get(
+                    fla[k] = int(mapping.get(
                         int(arr_only[int(v)]), int(arr_only[int(v)])))
-        if adopted_relabel:
-            folded, fold_arr = None, None
-        else:
-            folded, fold_arr = fold_and_relink(routed, self.spec)
+                cands.append((ra, fla))
+        # 候选 2：老折叠路径（逐 swap 判定 + 链化）
+        folded, fold_arr = fold_and_relink(routed, self.spec)
         if fold_arr is not None:
-            routed = folded
-            # final_layout 同步：折叠置换 arr 作用于输出物理位
-            for k, v in final_layout.items():
-                final_layout[k] = int(fold_arr[int(v)])
+            flb = dict(final_layout)
+            for k, v in flb.items():
+                flb[k] = int(fold_arr[int(v)])
+            cands.append((folded, flb))
+        # 候选 3：裸路由（v4 行为，永远合法）
+        cands.append((routed.copy(), dict(final_layout)))
+        # 代理评分选优（分解后指标 + 决胜规则）
+        scored = []
+        for c0, c1 in cands:
+            q = decompose_to_platform(c0)
+            m = pure_metrics(q, c0.count("swap"), self.spec.calib,
+                             predictor=self.fidelity_predictor)
+            scored.append((m["swap_count"], m["depth"],
+                           m["est_fidelity"], (c0, c1)))
+        chosen = self._select(scored)[0]
+        routed, final_layout = chosen[0], dict(chosen[1])
         noise_aware_relabel(routed, self.spec, final_layout)
         if with_learned and self.policy is not None:
             learned_relabel(self.policy, self.spec, routed, final_layout,
