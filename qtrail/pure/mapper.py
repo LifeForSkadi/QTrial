@@ -185,11 +185,12 @@ class PureMapper:
 
     # -------------------------------------------------- 管线级联合选择
     def _v5_pipeline(self, routed, final_layout, circ, noise_lambda,
-                     with_learned: bool = True):
+                     with_learned: bool = True, with_resynth: bool = True):
         """v5 后处理栈（含非劣化开关）。返回 (routed, final_layout, final_qc)。
 
-        with_learned=False 时跳过 L3（候选评分用：策略解码是耗时大头，
-        对候选排序影响微小；胜者交付时补跑）。
+        with_learned=False 跳过 L3、with_resynth=False 跳过 A2 块重合成
+        （候选评分用：策略解码与 torch 块拟合是耗时大头——hwb10 实测
+        44s/次——对候选排序影响微小；胜者交付时补跑全量）。
         """
         from qtrail.pure.post_v2 import (
             collect_resynthesize_2q_blocks, decompose_to_platform_v2,
@@ -208,7 +209,8 @@ class PureMapper:
             learned_relabel(self.policy, self.spec, routed, final_layout,
                             self.cfg, dev=self.dev, seed=self.seed,
                             noise_lambda=noise_lambda)
-        routed = collect_resynthesize_2q_blocks(routed, self.spec)
+        if with_resynth:
+            routed = collect_resynthesize_2q_blocks(routed, self.spec)
         final_qc = decompose_to_platform_v2(routed)
         m_v4 = pure_metrics(final_qc_v4, routed_v4.count("swap"),
                             self.spec.calib,
@@ -241,7 +243,8 @@ class PureMapper:
             routed_pre = routed.copy()
             fin_pre = dict(final_layout)
             routed, final_layout, final_qc = self._v5_pipeline(
-                routed, final_layout, circ, noise_lambda, with_learned=False)
+                routed, final_layout, circ, noise_lambda, with_learned=False,
+                with_resynth=False)
             m = pure_metrics(final_qc, routed.count("swap"),
                              self.spec.calib,
                              predictor=self.fidelity_predictor)
