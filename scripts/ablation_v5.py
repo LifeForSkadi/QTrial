@@ -29,7 +29,8 @@ from qtrail.pure.metrics import compute_metrics
 
 CKPT = "checkpoints/tianyan-287_gat_combined_calib_dep0.1_t0.5_c0.05_best.pt"
 OUT = Path("tables/ablation_v5")
-VARIANTS = ["v4", "v5", "v5-noA2", "v5-noC1", "v5-noL3", "v5-noB"]
+VARIANTS = ["v4", "v5", "v5-noA1", "v5-noA2", "v5-noA3",
+            "v5-noC1", "v5-noL3", "v5-noB"]
 
 
 def find_file(name):
@@ -52,24 +53,31 @@ def find_file(name):
 def run_variant(policy, cfg, spec, circ, variant, seed=42):
     """固定布局（平凡）下跑各变体后段——消融聚焦组件本身，布局噪声
     由同一 routed 输入消除。"""
+    from qtrail.pure.post_v2 import fold_and_relink
     routed, swaps, fin = sabre_route(circ, spec,
                                      {i: i for i in range(circ.n)}, seed=seed)
     post_route(routed, fin, spec.adj)
     if variant == "v4":
         final_qc = decompose_to_platform(routed)
-    else:
-        if "noC1" not in variant:
-            noise_aware_relabel(routed, spec, fin)
-        if "noL3" not in variant and policy is not None:
-            learned_relabel(policy, spec, routed, fin, cfg, dev="cpu",
-                            seed=seed)
-        if "noA2" not in variant:
-            routed = collect_resynthesize_2q_blocks(routed, spec)
-        if "noB" in variant:
-            final_qc = decompose_to_platform(routed)
-        else:
-            final_qc = decompose_to_platform_v2(routed)
-    return compute_metrics(final_qc, routed.count("swap"), spec.calib)
+        return compute_metrics(final_qc, routed.count("swap"), spec.calib)
+    r = routed.copy()
+    f = dict(fin)
+    if "noA1" not in variant:
+        folded, fold_arr = fold_and_relink(r, spec)
+        if fold_arr is not None:
+            r = folded
+            for k, v in f.items():
+                f[k] = int(fold_arr[int(v)])
+    if "noC1" not in variant:
+        noise_aware_relabel(r, spec, f)
+    if "noL3" not in variant and policy is not None:
+        learned_relabel(policy, spec, r, f, cfg, dev="cpu", seed=seed)
+    if "noA2" not in variant:
+        r = collect_resynthesize_2q_blocks(r, spec)
+    final_qc = decompose_to_platform_v2(
+        r, cancel_cx=("noA3" not in variant),
+        fixpoint=("noB" not in variant))
+    return compute_metrics(final_qc, r.count("swap"), spec.calib)
 
 
 def main():

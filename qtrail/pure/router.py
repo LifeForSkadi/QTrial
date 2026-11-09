@@ -49,6 +49,7 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 tabu_mult: float = 1000.0, tabu_decay: float = 0.0,
                 tabu_scope: str = "edge", tabu_count: bool = False,
                 lookahead_w: float = 0.5, noise_w: float = 0.0,
+                noise_tie: float = 0.0,
                 max_swaps: int = 100000, trials: int = 1):
     """返回 (routed: Circuit[物理空间], swap_count, final_layout)。
 
@@ -60,11 +61,14 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
       tabu_count=False + tabu_decay=0：窗口内使用过的边/比特 ×tabu_mult
       tabu_decay>0：惩罚随步龄指数衰减（软禁忌）
       tabu_count=True：窗口内使用次数 k → ×tabu_mult^k
-    lookahead_w>0：前瞻启发式（SABRE 论文 Algorithm 3 / qiskit
-    lookahead）：score = H(s) + lookahead_w·min_{s2≠s} H(s∘s2)。
-    noise_w>0：噪声感知路由（qiskit SabreSwap 是噪声盲的——本实现的
-    差异化）：距离按边校准误差缩放 dist·(1+noise_w·ε)，同跳数下
-    优先低误差边。trials>1 时多种子路由取 swap 最少者。
+    lookahead_w>0：前瞻启发式（SABRE 论文 Algorithm 3）：score =
+      H(s) + lookahead_w·min_{s2≠s} H(s∘s2)（qiskit 2.5 已无前向模拟
+      lookahead——本实现差异化）。
+    noise_w>0：噪声感知距离缩放（实验参数，默认关：破坏跳数优化）。
+    noise_tie>0：噪声感知平局裁决（实验参数，默认关——实测无论容差
+      1.0 还是精确同分均劣化换数：dtc_100 4488→7838，低误差边形成
+      路由陷阱；保留供后续研究，勿作默认）。
+    trials>1 时多种子路由取 swap 最少者（种子 = seed..seed+trials-1）。
     """
     if trials > 1:
         best = None
@@ -104,6 +108,14 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
             scale[i, j] = scale[j, i] = 1.0 + noise_w * float(e)
         dist = dist.astype(np.float64) * scale
     dist_flat = dist.ravel()
+    edge_err = None
+    if noise_tie > 0.0:
+        # 噪声感知平局裁决用：逐边校准误差（缺失边取中位）
+        err2q = spec.calib.err_2q
+        med = float(np.median(list(err2q.values()))) if err2q else 1e-3
+        edge_err = np.full(spec.n * spec.n, med, dtype=np.float64)
+        for (i, j), e in err2q.items():
+            edge_err[i * spec.n + j] = edge_err[j * spec.n + i] = float(e)
 
     # 防御性拷贝：路由过程就地消耗依赖集；mapper 候选评分会对同一 circ
     # 对象反复调用本函数，拷贝保证每次调用看到完整 DAG（2026-08-22 修复）。
@@ -267,9 +279,14 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
             # 防卡死逃逸：连续 10n 次无门执行的交换后随机换边
             pick = int(rng.integers(0, len(cand)))
         else:
-            # 种子随机平局裁决（qiskit SabreSwap seed 语义）
+            # 平局裁决：评分在最优+noise_tie 容差内的候选按边误差升序
+            # （噪声感知，qiskit 无此机制）；误差同分时种子随机
             sbest = scores.min()
-            tied = np.where(scores <= sbest + 1e-9)[0]
+            tied = np.where(scores <= sbest + noise_tie)[0]
+            if noise_tie > 0.0 and edge_err is not None and len(tied) > 1:
+                errs = edge_err[ea_[tied] * spec.n + eb_[tied]]
+                ebest = errs.min()
+                tied = tied[errs <= ebest + 1e-12]
             pick = int(tied[rng.integers(0, len(tied))])
         a, b = int(ea_[pick]), int(eb_[pick])
         out.append(Inst("swap", (a, b)))

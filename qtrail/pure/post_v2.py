@@ -638,13 +638,16 @@ def commute_cancel_cx(out_ops: list, window: int = 12,
 
 
 # ------------------------------------------------------------ v5 分解入口
-def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True) -> Circuit:
+def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
+                             cancel_cx: bool = True,
+                             fixpoint: bool = True) -> Circuit:
     """v5 平台基分解：v4 分解（cx→H-CZ-H、swap→3cx、u3→rzsx）+ 1Q 优化
     不动点循环（对标 qiskit Optimize1qGates + 交换消除）。
 
     与 v4（post.py decompose_to_platform）的差异：分解前多一轮 cx
     通勤对消（A3，对标 qiskit CommutativeCancellation）+ 分解后 1Q
     优化不动点（B 组件）——均语义等价、门数减少。
+    cancel_cx/fixpoint 为消融开关（默认开启）。
     """
     from qtrail.pure.post import decompose_to_platform as _v4_decompose
     # A3：cx 通勤对消（对标 qiskit CommutativeCancellation）——在副本上
@@ -652,8 +655,11 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True) -> Circuit
     work = Circuit(circ.n, name=circ.name)
     work.ops = list(circ.ops)
     work.measures = list(circ.measures)
-    commute_cancel_cx(work.ops)
+    if cancel_cx:
+        commute_cancel_cx(work.ops)
     out = _v4_decompose(work, expand_swap=expand_swap)
+    if not fixpoint:
+        return out
     # 1Q 优化不动点循环：游程合并为 u3 → ZXZ 再合成 → rz 穿 cz 消解
     # → rz 合并 → H 块奇偶消解，重复至稳定（4 轮上限）
     for _ in range(4):

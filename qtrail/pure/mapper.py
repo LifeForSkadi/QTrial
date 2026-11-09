@@ -35,7 +35,8 @@ class PureMapper:
     def __init__(self, spec, policy=None, cfg=None, dev="cuda", seed=0,
                  selection_rule="swap", lam_ms=0.0, use_post=True,
                  routing_seeds=1, fidelity_predictor=None,
-                 pipeline: str = "v4"):
+                 pipeline: str = "v4", full_eval: bool = True,
+                 full_eval_max_n: int = 50, full_eval_topk: int = 6):
         from qtrail.config import Config
         self.spec = spec
         self.policy = policy
@@ -52,6 +53,13 @@ class PureMapper:
         self.use_post = use_post
         self.routing_seeds = routing_seeds
         self.fidelity_predictor = fidelity_predictor
+        # 管线级联合选择（2026-11-11）：≤ full_eval_max_n 比特的线路，
+        # 候选布局以本管线完整产物实测评分选优（对标 inj 侧"布局×
+        # 管线联合选择"的自主实现——评分器是自研管线而非外部编译器）
+        self.full_eval = full_eval
+        self.full_eval_max_n = full_eval_max_n
+        self.full_eval_topk = full_eval_topk
+        self._full_result = None
         self._rng = np.random.default_rng(seed)
         self._dist_eff_cache = {}
 
@@ -119,8 +127,8 @@ class PureMapper:
         near = [s for s in scored if s[1] <= best + tol]
         return min(near, key=lambda s: (s[0], s[1]))[3], min(s[0] for s in near)
 
-    def compute_layout(self, graph, circ, noise_lambda):
-        """RL 多起点 + LS + 候选池（λ0/启发式/平凡）→ 路由竞技选优。"""
+    def _build_pool(self, graph, circ, noise_lambda):
+        """候选池：RL 多起点 + LS（λ 噪声/λ0 拓扑两批）+ 启发式 + 平凡。"""
         cfg = self.cfg
         dist_eff = self._dist_eff(noise_lambda)
         pool = []
@@ -166,9 +174,105 @@ class PureMapper:
         # 平凡布局候选：仅使用非禁用物理比特（2026-11-09 缺口 1 修复）
         usable = self.spec.usable_positions
         pool.append(usable[np.arange(graph.n) % len(usable)])
+        return pool
 
+    def compute_layout(self, graph, circ, noise_lambda):
+        """RL 多起点 + LS + 候选池（λ0/启发式/平凡）→ 路由竞技选优。"""
+        pool = self._build_pool(graph, circ, noise_lambda)
         scored = self._score_candidates(circ, graph, pool)
         best_pi, best_swaps = self._select(scored)
+        return best_pi, best_swaps
+
+    # -------------------------------------------------- 管线级联合选择
+    def _v5_pipeline(self, routed, final_layout, circ, noise_lambda,
+                     with_learned: bool = True):
+        """v5 后处理栈（含非劣化开关）。返回 (routed, final_layout, final_qc)。
+
+        with_learned=False 时跳过 L3（候选评分用：策略解码是耗时大头，
+        对候选排序影响微小；胜者交付时补跑）。
+        """
+        from qtrail.pure.post_v2 import (
+            collect_resynthesize_2q_blocks, decompose_to_platform_v2,
+            fold_and_relink, learned_relabel, noise_aware_relabel)
+        routed_v4 = routed.copy()
+        fin_v4 = dict(final_layout)
+        final_qc_v4 = decompose_to_platform(routed_v4)
+        folded, fold_arr = fold_and_relink(routed, self.spec)
+        if fold_arr is not None:
+            routed = folded
+            # final_layout 同步：折叠置换 arr 作用于输出物理位
+            for k, v in final_layout.items():
+                final_layout[k] = int(fold_arr[int(v)])
+        noise_aware_relabel(routed, self.spec, final_layout)
+        if with_learned and self.policy is not None:
+            learned_relabel(self.policy, self.spec, routed, final_layout,
+                            self.cfg, dev=self.dev, seed=self.seed,
+                            noise_lambda=noise_lambda)
+        routed = collect_resynthesize_2q_blocks(routed, self.spec)
+        final_qc = decompose_to_platform_v2(routed)
+        m_v4 = pure_metrics(final_qc_v4, routed_v4.count("swap"),
+                            self.spec.calib,
+                            predictor=self.fidelity_predictor)
+        m_v5 = pure_metrics(final_qc, routed.count("swap"),
+                            self.spec.calib,
+                            predictor=self.fidelity_predictor)
+        if not self._v5_not_worse(m_v5, m_v4):
+            routed, final_layout, final_qc = routed_v4, fin_v4, final_qc_v4
+        return routed, final_layout, final_qc
+
+    def _full_score_candidates(self, circ, graph, candidates, noise_lambda):
+        """每候选跑完整 v5 管线（跳过 L3）实测：返回
+        [(swaps, depth, fid, pi, (routed_pre, final_layout_pre, removed))]。
+
+        管线级联合选择的核心：评分目标 = 本管线最终产物（对标 inj 侧
+        布局×管线联合选择的自主实现——inj 评分器是 qiskit O3，本实现
+        评分器是自研管线，不依赖外部编译器）。胜者由调用方补跑 L3。
+        """
+        scored = []
+        for pi in candidates:
+            layout = {i: int(pi[i]) for i in range(graph.n)}
+            routed, swaps, final_layout = sabre_route(
+                circ, self.spec, layout, seed=self.seed, lam_ms=self.lam_ms,
+                trials=max(1, self.routing_seeds))
+            removed = 0
+            if self.use_post:
+                routed, removed = post_route(routed, final_layout,
+                                             self.spec.adj)
+            routed_pre = routed.copy()
+            fin_pre = dict(final_layout)
+            routed, final_layout, final_qc = self._v5_pipeline(
+                routed, final_layout, circ, noise_lambda, with_learned=False)
+            m = pure_metrics(final_qc, routed.count("swap"),
+                             self.spec.calib,
+                             predictor=self.fidelity_predictor)
+            scored.append((m["swap_count"], m["depth"],
+                           m["est_fidelity"], pi,
+                           (routed_pre, fin_pre, removed)))
+        return scored
+
+    def _compute_layout_full(self, graph, circ, noise_lambda):
+        """布局×管线联合选择：候选池廉价路由预筛排序 → top-K 全管线
+        实测 → 规则选优。胜者补跑 L3 后产物缓存供 map_circuit 交付。"""
+        pool = self._build_pool(graph, circ, noise_lambda)
+        scored = self._score_candidates(circ, graph, pool)
+        if self.selection_rule == "fidelity":
+            ranked = sorted(scored, key=lambda s: -s[2])
+        elif self.selection_rule == "depth":
+            ranked = sorted(scored, key=lambda s: s[1])
+        else:
+            ranked = sorted(scored, key=lambda s: (s[0], -s[2]))
+        topk = [s[3] for s in ranked[:self.full_eval_topk]]
+        full = self._full_score_candidates(circ, graph, topk, noise_lambda)
+        best_pi, best_swaps = self._select(full)
+        for entry in full:
+            if np.array_equal(entry[3], best_pi):
+                routed_pre, fin_pre, removed = entry[4]
+                routed, final_layout, final_qc = self._v5_pipeline(
+                    routed_pre, dict(fin_pre), circ, noise_lambda,
+                    with_learned=True)
+                self._full_result = (routed, final_layout, final_qc,
+                                     removed)
+                break
         return best_pi, best_swaps
 
     # -------------------------------------------------------------- 主入口
@@ -185,51 +289,37 @@ class PureMapper:
         graph = build_program_graph(circ.n, _ops_from_circuit(circ),
                                     circuit_id=circuit_id,
                                     temporal_alpha=self.cfg.graph.temporal_alpha)
-        pi, _ = self.compute_layout(graph, circ, noise_lambda)
+        self._full_result = None
+        if self.pipeline == "v5" and self.full_eval \
+                and circ.n <= self.full_eval_max_n:
+            # 管线级联合选择（2026-11-11）：候选布局以本管线完整产物
+            # 实测评分选优，胜者产物缓存复用（不重复路由）
+            pi, _ = self._compute_layout_full(graph, circ, noise_lambda)
+        else:
+            pi, _ = self.compute_layout(graph, circ, noise_lambda)
         layout = {i: int(pi[i]) for i in range(graph.n)}
 
-        routed, swaps, final_layout = sabre_route(
-            circ, self.spec, layout, seed=self.seed, lam_ms=self.lam_ms,
-            trials=max(1, self.routing_seeds))
-        removed = 0
-        if self.use_post:
-            # 硬件连通性感知后处理（2026-11-09）：产物 2Q 门全部落在
-            # 耦合图上，保证平台可执行
-            routed, removed = post_route(routed, final_layout,
-                                         self.spec.adj)
-        if self.pipeline == "v5":
-            # v5：置换折叠+LNN 重链化（A1）+ 噪声感知后布局重标记（C1）+
-            # 学习式重标记（L3）+ 2Q 块重合成（A2）+ 1Q 游程优化（B）+
-            # 非劣化开关（劣于 v4 则回退）
-            from qtrail.pure.post_v2 import (
-                collect_resynthesize_2q_blocks, decompose_to_platform_v2,
-                fold_and_relink, learned_relabel, noise_aware_relabel)
-            routed_v4 = routed.copy()
-            fin_v4 = dict(final_layout)
-            final_qc_v4 = decompose_to_platform(routed_v4)
-            folded, fold_arr = fold_and_relink(routed, self.spec)
-            if fold_arr is not None:
-                routed = folded
-                # final_layout 同步：折叠置换 arr 作用于输出物理位
-                for k, v in final_layout.items():
-                    final_layout[k] = int(fold_arr[int(v)])
-            noise_aware_relabel(routed, self.spec, final_layout)
-            if self.policy is not None:
-                learned_relabel(self.policy, self.spec, routed, final_layout,
-                                self.cfg, dev=self.dev, seed=self.seed,
-                                noise_lambda=noise_lambda)
-            routed = collect_resynthesize_2q_blocks(routed, self.spec)
-            final_qc = decompose_to_platform_v2(routed)
-            m_v4 = pure_metrics(final_qc_v4, routed_v4.count("swap"),
-                                self.spec.calib,
-                                predictor=self.fidelity_predictor)
-            m_v5 = pure_metrics(final_qc, routed.count("swap"),
-                                self.spec.calib,
-                                predictor=self.fidelity_predictor)
-            if not self._v5_not_worse(m_v5, m_v4):
-                routed, final_layout, final_qc = routed_v4, fin_v4, final_qc_v4
+        if self._full_result is not None:
+            routed, final_layout, final_qc, removed = self._full_result
+            swaps = routed.count("swap")
         else:
-            final_qc = decompose_to_platform(routed)
+            routed, swaps, final_layout = sabre_route(
+                circ, self.spec, layout, seed=self.seed, lam_ms=self.lam_ms,
+                trials=max(1, self.routing_seeds))
+            removed = 0
+            if self.use_post:
+                # 硬件连通性感知后处理（2026-11-09）：产物 2Q 门全部落在
+                # 耦合图上，保证平台可执行
+                routed, removed = post_route(routed, final_layout,
+                                             self.spec.adj)
+            if self.pipeline == "v5":
+                # v5：置换折叠+LNN 重链化（A1）+ 噪声感知后布局重标记（C1）+
+                # 学习式重标记（L3）+ 2Q 块重合成（A2）+ CX 通勤对消（A3）+
+                # 1Q 游程优化（B）+ 非劣化开关（劣于 v4 则回退）
+                routed, final_layout, final_qc = self._v5_pipeline(
+                    routed, final_layout, circ, noise_lambda)
+            else:
+                final_qc = decompose_to_platform(routed)
         metrics = pure_metrics(final_qc, routed.count("swap"),
                                self.spec.calib,
                                predictor=self.fidelity_predictor)
