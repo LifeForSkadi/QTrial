@@ -21,8 +21,6 @@
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
 
 from qtrail.pure.circuit import Circuit, Inst
@@ -45,7 +43,7 @@ def _interaction_graph(circ: Circuit):
     return edges
 
 
-def _exact_embedding(circ, spec, time_budget: float = 10.0,
+def _exact_embedding(circ, spec, max_embeddings: int = 2000,
                      max_active: int = 60):
     """H 的支撑图嵌入设备图：返回置换 dict {旧位置: 新位置} 或 None。
 
@@ -53,6 +51,10 @@ def _exact_embedding(circ, spec, time_budget: float = 10.0,
     全部 H 边落在设备边上。GraphMatcher 为子图同构（VF2），仅对
     ≤ max_active 个活跃位置启用（稀疏图 VF2 毫秒级；过大直接放弃，
     走部分嵌入）。
+
+    预算为**枚举嵌入个数上限**（迭代计数，2026-11-12 起替代墙钟
+    预算——硬件无关、结果确定：慢机器上只是跑得久，不会因为
+    预算被时间截断而降低质量）。
     """
     import networkx as nx
     edges = _interaction_graph(circ)
@@ -78,7 +80,6 @@ def _exact_embedding(circ, spec, time_budget: float = 10.0,
     if any(dh > deg_G[i] for i, dh in enumerate(deg_H)):
         return None
     GM = nx.algorithms.isomorphism.GraphMatcher(G, H)  # G 含 H 子图
-    t0 = time.time()
     # 多个嵌入解：按 Σ (1-ε) 噪声加权选最优（qiskit VF2PostLayout 的
     # 评分在 trial 层、且无此嵌入内选优）
     err2q = spec.calib.err_2q
@@ -94,8 +95,10 @@ def _exact_embedding(circ, spec, time_budget: float = 10.0,
 
     best = None
     best_s = -1.0
+    n_visited = 0
     for iso in GM.subgraph_isomorphisms_iter():
-        if time.time() - t0 > time_budget:
+        n_visited += 1
+        if n_visited > max_embeddings:
             break
         # iso: G 节点 -> H 节点。我们需要的重命名 = H 节点 -> G 节点
         mapping = {h: int(g) for g, h in iso.items()}
@@ -106,12 +109,13 @@ def _exact_embedding(circ, spec, time_budget: float = 10.0,
     return best
 
 
-def _partial_embedding(circ, spec, time_budget: float = 15.0,
-                       max_iters: int = 2000):
+def _partial_embedding(circ, spec, max_iters: int = 2000):
     """噪声加权部分嵌入：活跃位置内局部搜索，最大化 Σ w_e·(1-ε)·[可嵌入]。
 
     移动 = 交换两个活跃位置的新标签；增量评估；首优爬山 + 随机重启。
     返回置换 dict 或 None（无改进时）。
+
+    预算 = 固定迭代轮数（硬件无关、结果确定，2026-11-12）。
     """
     edges = _interaction_graph(circ)
     if not edges:
@@ -137,11 +141,8 @@ def _partial_embedding(circ, spec, time_budget: float = 15.0,
     mapping = {p: p for p in active}
     best = score(mapping)
     best_map = dict(mapping)
-    t0 = time.time()
     n_active = len(active)
     for it in range(max_iters):
-        if time.time() - t0 > time_budget:
-            break
         improved = False
         # 随机扰动后的贪心序（爬山多样性）
         order = rng.permutation(n_active)
@@ -188,7 +189,7 @@ def _complete_permutation(mapping: dict, n: int) -> dict:
     return full
 
 
-def global_relabel(circ: Circuit, spec, time_budget: float = 25.0) \
+def global_relabel(circ: Circuit, spec, time_budget: float | None = None) \
         -> tuple[Circuit, dict, bool] | None:
     """全局重标记。返回 (新线路, 置换, 是否精确嵌入) 或 None。
 
@@ -196,14 +197,15 @@ def global_relabel(circ: Circuit, spec, time_budget: float = 25.0) \
     final_layout）。exact=False 时线路中可能残留非相邻 2Q 门
     （部分嵌入只改善边质量、不保证合法性）——调用方仅应在本组件
     为 exact 时采用，或自行链化长程门。
+
+    time_budget 为历史参数（已弃用）：预算自 2026-11-12 起为迭代
+    计数（精确嵌入枚举 ≤2000 个、部分嵌入 ≤2000 轮）——硬件无关、
+    结果确定，慢机器上只是跑得久而非质量下降。
     """
-    t0 = time.time()
-    mapping = _exact_embedding(circ, spec,
-                               time_budget=min(time_budget, 15.0))
+    mapping = _exact_embedding(circ, spec)
     exact = mapping is not None
     if mapping is None:
-        mapping = _partial_embedding(
-            circ, spec, time_budget=max(0.0, time_budget - (time.time() - t0)))
+        mapping = _partial_embedding(circ, spec)
     if mapping is None:
         return None
 

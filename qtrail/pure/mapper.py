@@ -204,8 +204,9 @@ class PureMapper:
         # 重标记/折叠结果劣于裸路由时必须回退——gf2^7/dt_100 实测教训）
         cands = []
         # 候选 1：全局重标记路径（fold_only 坐标折叠 → 固定嵌入置换
-        # → 全量链化）
-        if relabel_budget is not None:
+        # → 全量链化）。门数上限防护（2026-11-12）：hwb12+ 类巨型
+        # 线路链化会爆炸（hwb10 已 9 万门），交给老折叠路径。
+        if relabel_budget is not None and len(routed.ops) <= 100_000:
             from qtrail.pure.relabel_vf2 import global_relabel
             from qtrail.pure.post_v2 import chain_long_gates
             folded_only, arr_only = fold_only(routed)

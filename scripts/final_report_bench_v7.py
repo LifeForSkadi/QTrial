@@ -92,8 +92,15 @@ def main():
                     help="只跑指定层（并行分片用：如 --buckets large）")
     ap.add_argument("--seeds", type=int, default=3,
                     help="最终路由多种子数（routing_seeds，默认 3）")
+    ap.add_argument("--shard", default=None,
+                    help="层内分片 k/N（并行用：线路按序均分到 N 片，"
+                         "每片独立输出文件，汇总时合并）")
     args = ap.parse_args()
     buckets_sel = [b for b in args.buckets.split(",") if b]
+    shard_id = shard_n = None
+    if args.shard:
+        shard_id, shard_n = (int(x) for x in args.shard.split("/"))
+        assert 0 <= shard_id < shard_n
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"dev={dev} buckets={buckets_sel}", flush=True)
     dev_cfg = load_device_config()
@@ -115,7 +122,8 @@ def main():
 
     for bucket in buckets_sel:
         rows = []
-        out_file = OUT / f"{bucket}_{RULE}_rows.jsonl"
+        suffix = f"_shard{shard_id}" if shard_id is not None else ""
+        out_file = OUT / f"{bucket}_{RULE}_rows{suffix}.jsonl"
         done_names = set()
         if out_file.exists():
             for line in out_file.read_text(encoding="utf-8").splitlines():
@@ -124,7 +132,13 @@ def main():
                     done_names.add(r["circuit"])
                     rows.append(r)
         n_done = len(done_names)
-        for i, (name, ptext) in enumerate(buckets[bucket]):
+        # 分片：按序均分（k 片取第 shard_id 份连续区间）
+        items = list(enumerate(buckets[bucket]))
+        if shard_id is not None:
+            lo = shard_id * len(items) // shard_n
+            hi = (shard_id + 1) * len(items) // shard_n
+            items = items[lo:hi]
+        for i, (name, ptext) in items:
             if name in done_names:
                 continue
             t0 = time.time()
@@ -152,30 +166,44 @@ def main():
         print(f"[{bucket}] 完成 {len(buckets[bucket])} 条 -> {out_file}",
               flush=True)
 
-    # ---- 汇总（v5 vs v3 修复后 vs 感知 O3）
+    # ---- 汇总（v7 vs v6 老路由器 vs v3 修复后 vs 感知 O3 vs pytket）
     titles = {"small": "≤10 比特", "medium": "11-50 比特",
               "large": "51-105 比特"}
-    v3 = {}
-    old = {}
+    v3, old, v6 = {}, {}, {}
     for bucket in ("small", "medium", "large"):
-        for src, store in ((V3, v3), (OLD, old)):
+        for src, store in ((V3, v3), (OLD, old), (V6, v6)):
             p = src / f"{bucket}_{RULE}_rows.jsonl"
             if p.exists():
                 for line in p.read_text(encoding="utf-8").splitlines():
                     if line.strip():
                         r = json.loads(line)
                         store[r["circuit"]] = r
-    lines = ["# QTrial v6 管线全量汇总（A1+A2）（2026-11-09）\n",
-             "v5 = B（1Q 游程）+ A2（2Q 块重合成）+ C1（噪声感知重标记）+ "
-             "L3（学习式重标记）+ 非劣化开关；基线不重跑，感知 O3 读旧表。\n"]
+    lines = ["# QTrial v7 管线全量汇总（路由器重写 + A1/A2/A3 + 联合选择）\n",
+             "v7 = 路由器评分重写（恒权/0.5n 扩展集/随机平局/10n 逃逸/双步前瞻）"
+             "+ 管线级联合选择 + v5 组件（A1 折叠+LNN 链/A2/A3/B/C1/L3/"
+             "非劣化开关）；v6 = 老路由器对照（隔离路由器贡献）；基线不重跑，"
+             "感知 O3/pytket 读旧表。\n"]
     for bucket in ("small", "medium", "large"):
-        if bucket not in buckets_sel and not (OUT / f"{bucket}_{RULE}_rows.jsonl").exists():
+        # 合并主文件与分片文件
+        rows = []
+        main = OUT / f"{bucket}_{RULE}_rows.jsonl"
+        if main.exists():
+            rows += [json.loads(l) for l in
+                     main.read_text(encoding="utf-8").splitlines()
+                     if l.strip()]
+        for sp in sorted(OUT.glob(f"{bucket}_{RULE}_rows_shard*.jsonl")):
+            rows += [json.loads(l) for l in
+                     sp.read_text(encoding="utf-8").splitlines()
+                     if l.strip()]
+        if not rows:
             continue
-        p = OUT / f"{bucket}_{RULE}_rows.jsonl"
-        if not p.exists():
-            continue
-        rows = [json.loads(l) for l in
-                p.read_text(encoding="utf-8").splitlines() if l.strip()]
+        seen = set()
+        uniq = []
+        for r in rows:
+            if r["circuit"] not in seen:
+                seen.add(r["circuit"])
+                uniq.append(r)
+        rows = uniq
         ok = [r for r in rows if "qt_fidelity" in r]
         n_err = len(rows) - len(ok)
 
@@ -190,27 +218,41 @@ def main():
             return (f"{t[0]:.4f}/{t[1]:.4f}/{t[2]:.4f}"
                     if t and t[0] is not None else "-")
 
-        v3_ok = [v3[r["circuit"]] for r in ok
-                 if r["circuit"] in v3 and "qt_fidelity" in v3[r["circuit"]]]
-        aw_ok = [old[r["circuit"]] for r in ok
-                 if r["circuit"] in old and "aw_o3_fidelity" in old[r["circuit"]]]
+        def pick(store, circ, prefix):
+            r = store.get(circ)
+            if not r:
+                return None
+            keys = {f"{prefix}_{k}": k for k in
+                    ("swaps", "depth", "twoq_depth", "fidelity")}
+            out = {}
+            for full, k in keys.items():
+                if full in r:
+                    out[k] = r[full]
+            return out if out else None
 
-        def stat2(rows_, key):
-            vals = [r[key] for r in rows_]
+        def stat3(store, prefix, key):
+            vals = [pick(store, r["circuit"], prefix)[key]
+                    for r in ok
+                    if pick(store, r["circuit"], prefix)
+                    and key in pick(store, r["circuit"], prefix)]
             if not vals:
                 return None
             return (statistics.mean(vals), trimmed(vals),
                     statistics.median(vals))
 
         lines.append(f"\n## {titles[bucket]}（{len(ok)} 条完成，{n_err} 条错误）\n")
-        lines.append("| 指标（均值/截尾/中位） | v5 | v3 修复后 | 感知 O3 |\n")
-        lines.append("|---|---|---|---|\n")
+        lines.append("| 指标（均值/截尾/中位） | v7 | v6 老路由器 | v3 修复后 "
+                     "| 感知 O3 | pytket |\n")
+        lines.append("|---|---|---|---|---|---|\n")
         for label, key in (("SWAP 数", "qt_swaps"), ("深度", "qt_depth"),
                            ("2Q 深度", "qt_twoq_depth"),
                            ("估计保真度", "qt_fidelity")):
-            lines.append(f"| {label} | {fmt(stat(key))} | "
-                         f"{fmt(stat2(v3_ok, key))} | "
-                         f"{fmt(stat2(aw_ok, 'aw_o3_' + ('swaps' if key == 'qt_swaps' else 'fidelity' if key == 'qt_fidelity' else 'depth' if key == 'qt_depth' else 'twoq_depth')))} |\n")
+            lines.append(
+                f"| {label} | {fmt(stat(key))} | "
+                f"{fmt(stat3(v6, 'qt', 'swaps' if key == 'qt_swaps' else 'depth' if key == 'qt_depth' else 'twoq_depth' if key == 'qt_twoq_depth' else 'fidelity'))} | "
+                f"{fmt(stat3(v3, 'qt', 'swaps' if key == 'qt_swaps' else 'depth' if key == 'qt_depth' else 'twoq_depth' if key == 'qt_twoq_depth' else 'fidelity'))} | "
+                f"{fmt(stat3(old, 'aw_o3', 'swaps' if key == 'qt_swaps' else 'depth' if key == 'qt_depth' else 'twoq_depth' if key == 'qt_twoq_depth' else 'fidelity'))} | "
+                f"{fmt(stat3(old, 'tket', 'swaps' if key == 'qt_swaps' else 'depth' if key == 'qt_depth' else 'twoq_depth' if key == 'qt_twoq_depth' else 'fidelity'))} |\n")
     (OUT / "summary.md").write_text("".join(lines), encoding="utf-8")
     print(f"\n汇总 -> {OUT / 'summary.md'}")
 
