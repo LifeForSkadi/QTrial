@@ -40,6 +40,41 @@ def _u3_to_rzsx(th: float, ph: float, la: float) -> list[tuple]:
             ("rz", (float(ph + 3 * math.pi),))]
 
 
+def _u3_to_rzsx_min(th: float, ph: float, la: float) -> list[tuple]:
+    """B8：误差加权 1Q 合成（对标 qiskit euler_one_qubit_decomposer 的
+    simplify + 多候选选择；2026-11-12）。
+
+    候选集：ZSXXZ（现有模板）/ ZXZXZ（X 基）/ 零角省略变体；
+    选择 = 门数最少（校准为逐比特单一误差率，门数即误差序），
+    平局优先 sx 版。θ≈0 与 θ≈π 的特例经 ZXZXZ 自然覆盖。
+    """
+    def _mod2pi(a):
+        return float(a % (2 * math.pi))
+
+    def _strip_zero(gates):
+        return [g for g in gates if not (g[0] == "rz"
+                and abs(_mod2pi(g[1][0])) < 1e-9)]
+
+    cands = [_u3_to_rzsx(th, ph, la)]
+    # ZXZXZ（解析推导，2026-11-12）：
+    #   Ry(θ) = Rz(π/2)·Rx(θ)·Rz(−π/2)（共轭：Rz(π/2)X Rz(−π/2)=Y）
+    #   Rx(θ) = Rz(π/2)·X·Rz(θ+π)·X·Rz(π/2)（H·Rz(θ)·H，H=Rz(π/2)X Rz(π/2)）
+    #   ⇒ U3(θ,φ,λ) = Rz(φ+π)·X·Rz(θ+π)·X·Rz(λ)（模全局相位）
+    zxzxz = [("rz", (float(ph + math.pi),)), ("x", ()),
+             ("rz", (float(th + math.pi),)), ("x", ()),
+             ("rz", (float(la),))]
+    cands.append(zxzxz)
+    # 零角省略变体（两种候选都试）
+    for c in list(cands):
+        cands.append(_strip_zero(c))
+    # θ≈0 特例（对角）：单 rz
+    if abs(math.sin(th / 2)) < 1e-9:
+        cands.append([("rz", (_mod2pi(ph + la),))])
+    best = min(cands, key=lambda g: (len(g), 1 if any(
+        x[0] == "x" for x in g) else 0))
+    return best
+
+
 def _swap_past(swap_qs: tuple, gate: Inst,
                adj: "np.ndarray | None" = None) -> Inst | None:
     """swap 能否穿过 gate 移到其后：返回重写后的 gate（None = 不能穿）。

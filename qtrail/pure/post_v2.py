@@ -23,7 +23,8 @@ import math
 import numpy as np
 
 from qtrail.pure.circuit import Circuit, Inst
-from qtrail.pure.post import (H_GATE, _u3_to_rzsx, absorb_trailing,
+from qtrail.pure.post import (H_GATE, _u3_to_rzsx, _u3_to_rzsx_min,
+                             absorb_trailing,
                               cancel_cx, merge_adjacent_rz, post_route,
                               push_swaps)
 
@@ -116,7 +117,7 @@ def merge_1q_runs(out_ops: list) -> int:
                     # 只有合成后的门数少于原游程才合并——短游程（2-4
                     # 门）合成 ZSXXZ 5 门反而膨胀（qft5 实测 +10 门）；
                     # 长游程（>5 门）与 H 形游程的收益保留
-                    if len(_u3_to_rzsx(*params)) < (j - i):
+                    if len(_u3_to_rzsx_min(*params)) < (j - i):
                         out.append(Inst("u3", (q,), params))
                         merged += 1
                     else:
@@ -876,7 +877,7 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
             new_ops = []
             for inst in out.ops:
                 if inst.name == "u3":
-                    for gname, gparams in _u3_to_rzsx(*inst.params):
+                    for gname, gparams in _u3_to_rzsx_min(*inst.params):
                         new_ops.append(Inst(gname, inst.qubits, gparams))
                 else:
                     new_ops.append(inst)
