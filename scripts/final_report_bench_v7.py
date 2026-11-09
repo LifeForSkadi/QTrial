@@ -90,7 +90,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--buckets", default="small,medium,large",
                     help="只跑指定层（并行分片用：如 --buckets large）")
-    ap.add_argument("--seeds", type=int, default=3,
+    ap.add_argument("--seeds", type=int, default=6,
                     help="最终路由多种子数（routing_seeds，默认 3）")
     ap.add_argument("--shard", default=None,
                     help="层内分片 k/N（并行用：线路按序均分到 N 片，"

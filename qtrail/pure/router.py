@@ -79,20 +79,25 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     计进 scorer_stats（REINFORCE 训练用），否则贪心 argmax。
     """
     if trials > 1:
-        best = None
-        for k in range(trials):
-            routed, swaps, fin = sabre_route(
-                circ, spec, layout, seed=seed + k, lam_ms=lam_ms,
-                w_ext=w_ext, decay_pen=decay_pen, tabu_window=tabu_window,
-                tabu_mult=tabu_mult, tabu_decay=tabu_decay,
-                tabu_scope=tabu_scope, tabu_count=tabu_count,
-                lookahead_w=lookahead_w, noise_w=noise_w,
-                noise_tie=noise_tie, scorer=scorer,
-                scorer_sample=scorer_sample, scorer_temp=scorer_temp,
-                scorer_stats=scorer_stats,
-                max_swaps=max_swaps, trials=1)
-            if best is None or swaps < best[1]:
-                best = (routed, swaps, fin)
+        # 多种子并行（2026-11-12：numba/numpy 释放 GIL，线程池即可
+        # 近似并行；对标 qiskit rust 的并行 trials）
+        from concurrent.futures import ThreadPoolExecutor
+        kwargs = dict(lam_ms=lam_ms, w_ext=w_ext, decay_pen=decay_pen,
+                      tabu_window=tabu_window, tabu_mult=tabu_mult,
+                      tabu_decay=tabu_decay, tabu_scope=tabu_scope,
+                      tabu_count=tabu_count, lookahead_w=lookahead_w,
+                      noise_w=noise_w, noise_tie=noise_tie, scorer=scorer,
+                      scorer_sample=scorer_sample, scorer_temp=scorer_temp,
+                      scorer_stats=scorer_stats, max_swaps=max_swaps,
+                      trials=1)
+
+        def _trial(k):
+            return sabre_route(circ, spec, dict(layout), seed=seed + k,
+                               **kwargs)
+
+        with ThreadPoolExecutor(max_workers=min(trials, 8)) as ex:
+            results = list(ex.map(_trial, range(trials)))
+        best = min(results, key=lambda t: t[1])
         return best
 
     rng = np.random.default_rng(seed)
