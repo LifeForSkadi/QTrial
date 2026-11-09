@@ -45,8 +45,8 @@ class PureMapper:
         self.seed = seed
         if selection_rule not in ("swap", "fidelity", "depth"):
             raise ValueError(f"unknown selection rule: {selection_rule}")
-        if pipeline not in ("v4", "v5"):
-            raise ValueError(f"unknown pipeline: {pipeline} (v4 | v5)")
+        if pipeline not in ("v4", "v5", "v6"):
+            raise ValueError(f"unknown pipeline: {pipeline} (v4 | v5 | v6)")
         self.pipeline = pipeline
         self.selection_rule = selection_rule
         self.lam_ms = lam_ms
@@ -186,15 +186,19 @@ class PureMapper:
     # -------------------------------------------------- 管线级联合选择
     def _v5_pipeline(self, routed, final_layout, circ, noise_lambda,
                      with_learned: bool = True, with_resynth: bool = True,
-                     relabel_budget: float | None = 25.0):
+                     relabel_budget: float | None = 25.0,
+                     full_resynth: bool = False):
         """v5 后处理栈（含非劣化开关）。返回 (routed, final_layout, final_qc)。
 
         with_learned=False 跳过 L3、with_resynth=False 跳过 A2 块重合成、
         relabel_budget=None 跳过全局重标记（候选评分用：耗时大头在
-        胜者交付时全量跑；预算单位秒）。
+        胜者交付时全量跑；预算单位秒）。full_resynth=True（v6 管线）
+        时 A2 用全量版（逐块保真度守卫 + 无收益阈值，对标 qiskit 2.x
+        TwoQubitPeephole 的实际机制）。
         """
         from qtrail.pure.post_v2 import (
-            collect_resynthesize_2q_blocks, decompose_to_platform_v2,
+            collect_resynthesize_2q_blocks, collect_resynthesize_2q_blocks_full,
+            decompose_to_platform_v2,
             fold_and_relink, fold_only, learned_relabel, noise_aware_relabel)
         routed_v4 = routed.copy()
         fin_v4 = dict(final_layout)
@@ -245,7 +249,10 @@ class PureMapper:
                             self.cfg, dev=self.dev, seed=self.seed,
                             noise_lambda=noise_lambda)
         if with_resynth:
-            routed = collect_resynthesize_2q_blocks(routed, self.spec)
+            if full_resynth:
+                routed = collect_resynthesize_2q_blocks_full(routed, self.spec)
+            else:
+                routed = collect_resynthesize_2q_blocks(routed, self.spec)
         final_qc = decompose_to_platform_v2(routed)
         m_v4 = pure_metrics(final_qc_v4, routed_v4.count("swap"),
                             self.spec.calib,
@@ -307,7 +314,8 @@ class PureMapper:
                 routed_pre, fin_pre, removed = entry[4]
                 routed, final_layout, final_qc = self._v5_pipeline(
                     routed_pre, dict(fin_pre), circ, noise_lambda,
-                    with_learned=True)
+                    with_learned=True,
+                    full_resynth=(self.pipeline == "v6"))
                 self._full_result = (routed, final_layout, final_qc,
                                      removed)
                 break
@@ -328,7 +336,7 @@ class PureMapper:
                                     circuit_id=circuit_id,
                                     temporal_alpha=self.cfg.graph.temporal_alpha)
         self._full_result = None
-        if self.pipeline == "v5" and self.full_eval \
+        if self.pipeline in ("v5", "v6") and self.full_eval \
                 and circ.n <= self.full_eval_max_n:
             # 管线级联合选择（2026-11-11）：候选布局以本管线完整产物
             # 实测评分选优，胜者产物缓存复用（不重复路由）
@@ -350,12 +358,14 @@ class PureMapper:
                 # 耦合图上，保证平台可执行
                 routed, removed = post_route(routed, final_layout,
                                              self.spec.adj)
-            if self.pipeline == "v5":
+            if self.pipeline in ("v5", "v6"):
                 # v5：置换折叠+LNN 重链化（A1）+ 噪声感知后布局重标记（C1）+
                 # 学习式重标记（L3）+ 2Q 块重合成（A2）+ CX 通勤对消（A3）+
-                # 1Q 游程优化（B）+ 非劣化开关（劣于 v4 则回退）
+                # 1Q 游程优化（B）+ 非劣化开关（劣于 v4 则回退）；
+                # v6 = v5 + A2 全量版（full_resynth，逐块保真度守卫）
                 routed, final_layout, final_qc = self._v5_pipeline(
-                    routed, final_layout, circ, noise_lambda)
+                    routed, final_layout, circ, noise_lambda,
+                    full_resynth=(self.pipeline == "v6"))
             else:
                 final_qc = decompose_to_platform(routed)
         metrics = pure_metrics(final_qc, routed.count("swap"),

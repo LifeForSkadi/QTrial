@@ -219,7 +219,7 @@ def _absorb_h(out_ops: list) -> int:
     n = len(out_ops)
     while i < n:
         # 模式：H,rz(θ),H → rx(θ)（rz 夹在两个 H 块之间）
-        if (i + 4 < n and _is_h_block(out_ops, i)
+        if (i + 6 < n and _is_h_block(out_ops, i)
                 and out_ops[i + 3].name == "rz"
                 and out_ops[i + 3].qubits[0] == out_ops[i].qubits[0]
                 and _is_h_block(out_ops, i + 4)):
@@ -380,6 +380,79 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
         new_insts = block_params_to_insts(t, pair)
         ops[start:end] = new_insts
     circ._deps = None
+    return circ
+
+
+# ------------------------------------------- A2-full：同对块全量 KAK（v6 组件）
+def collect_resynthesize_2q_blocks_full(circ: Circuit, spec,
+                                        max_blocks: int = 150) -> Circuit:
+    """A2 全量版（v6 管线组件，对标 qiskit 2.x TwoQubitPeephole 的
+    实际机制——rust 源码确认：同对 2Q 游程收集 + 酉合成 + 误差加权
+    择优替换，而非 NCT 模板）。
+
+    与 A2（阈值 3s+g≥5）的差异：每个同对游程都尝试 KAK 重合成，
+    但**逐块保真度守卫**（合成产物在该对边上的误差积 ≤ 原块误差积
+    才替换——误差加权语义）+ 块数上限防护（hwb 类耗时）。
+    """
+    from qtrail.pure.synthesis import (block_params_to_insts,
+                                       collect_2q_blocks, fit_block_torch,
+                                       kak_decompose, _init_3cx_params,
+                                       _su2_euler, _cached_3cx_params)
+
+    ops = circ.ops
+    blocks = collect_2q_blocks(circ, spec)
+    if not blocks:
+        return circ
+    if max_blocks is not None and len(blocks) > max_blocks:
+        blocks = blocks[:max_blocks]
+    err2q = spec.calib.err_2q
+    med = float(np.median(list(err2q.values()))) if err2q else 1e-3
+
+    def block_error(start, end, pair):
+        a, b = pair
+        e = err2q.get((a, b), err2q.get((b, a), med))
+        return (1.0 - float(e)) ** sum(
+            1 for i in range(start, end) if ops[i].nq == 2)
+
+    n_replaced = 0
+    for start, end, pair, n_swap, n_2q in reversed(blocks):
+        if n_2q < 2:
+            continue
+        U = _block_unitary(ops[start:end], pair)
+        if abs(np.linalg.det(U)) < 1e-10:
+            continue
+        U = U / np.linalg.det(U) ** 0.25  # SU(4) 规范化
+        # 恒等块：整体删除
+        if abs(np.trace(U)) / 4 > 1 - 1e-9:
+            del ops[start:end]
+            n_replaced += 1
+            continue
+        orig_err = block_error(start, end, pair)
+        try:
+            dec = kak_decompose(U, iters=20)
+            init = np.zeros(21)
+            for idx, K in enumerate((dec["K1"], dec["K2"])):
+                th, ph, la = _su2_euler(K)
+                init[3 * idx:3 * idx + 3] = [th, ph, la]
+            for idx, K in enumerate((dec["K3"], dec["K4"])):
+                th, ph, la = _su2_euler(K)
+                init[14 + 3 * idx:14 + 3 * idx + 3] = [th, ph, la]
+            init[6:14] = _cached_3cx_params(np.asarray(dec["k"]))
+            t, ov = fit_block_torch(U, init)
+        except Exception:
+            continue
+        if ov < 1 - 1e-9:
+            continue
+        new_insts = block_params_to_insts(t, pair)
+        # 误差加权守卫：合成产物（3 CX + 12 1Q）的 2Q 误差积必须
+        # 不劣于原块（1Q 误差由后续 B 组件统一处理）
+        new_2q_err = (1.0 - float(err2q.get(pair, err2q.get(
+            (pair[1], pair[0]), med)))) ** 3
+        if new_2q_err >= orig_err - 1e-12 and len(new_insts) < (end - start):
+            ops[start:end] = new_insts
+            n_replaced += 1
+    if n_replaced:
+        circ._deps = None
     return circ
 
 
