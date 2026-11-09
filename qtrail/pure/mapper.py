@@ -195,22 +195,32 @@ class PureMapper:
         """
         from qtrail.pure.post_v2 import (
             collect_resynthesize_2q_blocks, decompose_to_platform_v2,
-            fold_and_relink, learned_relabel, noise_aware_relabel)
+            fold_and_relink, fold_only, learned_relabel, noise_aware_relabel)
         routed_v4 = routed.copy()
         fin_v4 = dict(final_layout)
         final_qc_v4 = decompose_to_platform(routed_v4)
+        adopted_relabel = False
         if relabel_budget is not None:
-            # 全局重标记（对标 VF2PostLayout 的自主实现 + 噪声加权
-            # 部分嵌入扩展）：精确嵌入 → 0-SWAP 消除；部分嵌入 →
-            # 仅重标记（收益由非劣化守卫裁决）
+            # 全局重标记：先纯坐标折叠（恒正确）→ 固定嵌入置换作用于
+            # 坐标稳定的线路（fold_only 产物）→ 链化残留长程门
+            # （A5）。精确嵌入 = 0-SWAP 全相邻；部分嵌入 = 噪声加权
+            # 边质量改善（非劣化开关兜底裁决）。
             from qtrail.pure.relabel_vf2 import global_relabel
-            res = global_relabel(routed, self.spec,
+            from qtrail.pure.post_v2 import chain_long_gates
+            folded_only, arr_only = fold_only(routed)
+            res = global_relabel(folded_only, self.spec,
                                  time_budget=relabel_budget)
             if res is not None:
-                routed, mapping = res
+                relabeled, mapping, _exact = res
+                routed, _ = chain_long_gates(relabeled, self.spec)
+                adopted_relabel = True
                 for k, v in final_layout.items():
-                    final_layout[k] = int(mapping.get(int(v), int(v)))
-        folded, fold_arr = fold_and_relink(routed, self.spec)
+                    final_layout[k] = int(mapping.get(
+                        int(arr_only[int(v)]), int(arr_only[int(v)])))
+        if adopted_relabel:
+            folded, fold_arr = None, None
+        else:
+            folded, fold_arr = fold_and_relink(routed, self.spec)
         if fold_arr is not None:
             routed = folded
             # final_layout 同步：折叠置换 arr 作用于输出物理位

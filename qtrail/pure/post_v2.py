@@ -586,6 +586,81 @@ def _merge_adjacent_rz_ops(out_ops):
             i += 1
 
 
+# ------------------------------------------- A4：纯坐标折叠（fold_only，无链化）
+def fold_only(circ: Circuit):
+    """A4 组件：纯置换折叠——arr 坐标跟踪、删除全部 swap、门按 arr
+    重标记，**不做链化、不做逐 swap 判定**（恒正确：代数恒等式）。
+
+    产物 = 原线路在初始布局坐标下的表示（长程门保持长程、非法性由
+    后续组件处理）。为全局重标记（relabel_vf2.global_relabel）提供
+    语义正确的前置：固定置换只能作用于坐标稳定的线路。
+
+    返回 (new_circ, arr)：arr = 最终坐标置换（fold 同款语义）。
+    """
+    ops = circ.ops
+    arr = np.arange(circ.n, dtype=np.int64)
+    out = []
+    for inst in ops:
+        if inst.name == "swap":
+            a, b = int(inst.qubits[0]), int(inst.qubits[1])
+            arr[a], arr[b] = arr[b], arr[a]
+            continue
+        qs = tuple(int(arr[int(q)]) for q in inst.qubits)
+        out.append(Inst(inst.name, qs, inst.params))
+    new_circ = Circuit(circ.n, name=circ.name)
+    new_circ.ops = out
+    for m_ in circ.measures:
+        new_circ.measures.append(
+            Inst("measure", (int(arr[int(m_.qubits[0])]),), cbits=m_.cbits))
+    return new_circ, arr
+
+
+# ------------------------------------------- A5：长程门链化（独立 pass）
+def chain_long_gates(circ: Circuit, spec, d_max: int | None = None):
+    """A5 组件：非相邻 2Q 门 LNN 链化（噪声感知选路；cz 用 H 包裹）。
+
+    从 fold_and_relink 抽出的独立链化（fold 语义：链矩阵已验证）。
+    默认全部链化（d_max=None）：残留长程门会造成硬件非法，而链化
+    膨胀由调用方非劣化开关兜底（v4 回退永远合法）。返回 (新线路,
+    链化数)。
+    """
+    from qtrail.pure.lnn import noise_aware_chain
+    out = []
+    n_chained = 0
+    for inst in circ.ops:
+        if inst.nq != 2 or inst.name == "swap":
+            out.append(inst)
+            continue
+        q0, q1 = int(inst.qubits[0]), int(inst.qubits[1])
+        if spec.adj[q0, q1]:
+            out.append(inst)
+            continue
+        if d_max is not None and int(spec.dist[q0, q1]) > d_max:
+            out.append(inst)
+            continue
+        gates, _ = noise_aware_chain(spec, q0, q1)
+        if gates is None:
+            out.append(inst)
+            continue
+        n_chained += 1
+        if inst.name == "cx":
+            for gc, gt in gates:
+                out.append(Inst("cx", (int(gc), int(gt))))
+        else:  # cz(a,b) = H(b)·cx 链·H(b)
+            for gname, gp in (("rz", (math.pi / 2,)), ("sx", ()),
+                              ("rz", (math.pi / 2,))):
+                out.append(Inst(gname, (q1,), gp))
+            for gc, gt in gates:
+                out.append(Inst("cx", (int(gc), int(gt))))
+            for gname, gp in (("rz", (math.pi / 2,)), ("sx", ()),
+                              ("rz", (math.pi / 2,))):
+                out.append(Inst(gname, (q1,), gp))
+    new_circ = Circuit(circ.n, name=circ.name)
+    new_circ.ops = out
+    new_circ.measures = list(circ.measures)
+    return new_circ, n_chained
+
+
 # ------------------------------------------- A3：CX 通勤对消（CommutativeCancellation 的 cx 版）
 def _cx_commutes(a: Inst, b: Inst) -> bool:
     """cx(a,b) 与 op 是否对易：比特不相交恒对易；同为 cx 时同控/同目标

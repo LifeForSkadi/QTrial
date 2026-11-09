@@ -3,18 +3,21 @@
 2026-11-11）。
 
 机制：
-  1. 交互图 H = 路由后线路 2Q 门（含 swap）在物理位置上的支撑图；
-  2. 精确嵌入：H 是否子图同构嵌入设备耦合图？networkx GraphMatcher
-     （VF2 公开算法 Cordella 2001 的标准实现，限时）——找到则置换
-     重标记 + 删除全部 swap（0-SWAP 消除，语义 = 输出置换变更，
-     与 qiskit VF2PostLayout 同机制）；
-  3. 未找到（限时/无解）→ 噪声加权部分嵌入：活跃位置内局部搜索，
+  1. 输入 = 坐标稳定线路（post_v2.fold_only 的产物：swap 已按 arr
+     坐标跟踪删除，全部门在初始布局坐标下——固定置换作用于坐标
+     稳定的线路才是合法的全局重标记；对含 swap 的时变线路直接施加
+     固定置换是语义错误，2026-11-11 语义测试捕获）；
+  2. 交互图 H = 输入线路 2Q 门的位置支撑图；
+  3. 精确嵌入：H 是否子图同构嵌入设备耦合图（可用节点排除禁用比特）？
+     networkx GraphMatcher（VF2 公开算法 Cordella 2001 的标准实现，
+     限时）——找到则置换重标记（0-SWAP 消除在 fold_only 上游完成）；
+  4. 未找到（限时/无解）→ 噪声加权部分嵌入：活跃位置内局部搜索，
      最大化 Σ_{H 边} (1-ε) · [π 后落在设备边上]——qiskit 无此扩展
      （他们找不到完美解就放弃）；
-  4. 非劣化守卫 + 硬件合法性断言（调用方防线）。
+  5. 自验证防线 + 调用方非劣化守卫。
 
 语义：全局标签置换保线路酉语义（输出比特重命名），final_layout
-由调用方同步更新。
+由调用方同步更新（fold_only 的 arr 与 mapping 复合）。
 """
 from __future__ import annotations
 
@@ -61,17 +64,19 @@ def _exact_embedding(circ, spec, time_budget: float = 10.0,
     H = nx.Graph()
     H.add_nodes_from(active)
     H.add_edges_from(edges.keys())
-    # 度序列预检：H 节点度必须 ≤ 设备最大度（快速排除无解密集图）
+    # 目标节点集排除禁用比特（真机口径必需：映射到禁用比特的线路
+    # 无法提交平台）
+    usable = [q for q in range(spec.n)
+              if q not in set(spec.disabled_qubits)]
+    # 度序列预检：H 节点度必须 ≤ 设备（可用节点）最大度
+    G = nx.Graph()
+    G.add_nodes_from(usable)
+    G.add_edges_from([(i, j) for i in usable for j in usable
+                      if i < j and spec.adj[i, j]])
     deg_H = sorted((d for _, d in H.degree()), reverse=True)
-    deg_G = sorted((d for _, d in nx.Graph(
-        [(i, j) for i in range(spec.n) for j in range(i + 1, spec.n)
-         if spec.adj[i, j]]).degree()), reverse=True)
+    deg_G = sorted((d for _, d in G.degree()), reverse=True)
     if any(dh > deg_G[i] for i, dh in enumerate(deg_H)):
         return None
-    G = nx.Graph()
-    G.add_nodes_from(range(spec.n))
-    G.add_edges_from([(i, j) for i in range(spec.n)
-                      for j in range(i + 1, spec.n) if spec.adj[i, j]])
     GM = nx.algorithms.isomorphism.GraphMatcher(G, H)  # G 含 H 子图
     t0 = time.time()
     # 多个嵌入解：按 Σ (1-ε) 噪声加权选最优（qiskit VF2PostLayout 的
@@ -161,12 +166,36 @@ def _partial_embedding(circ, spec, time_budget: float = 15.0,
     return best_map
 
 
+def _complete_permutation(mapping: dict, n: int) -> dict:
+    """把活跃位置的部分置换补全为 [0, n) 上的双射。
+
+    嵌入只给出活跃位置的映射；若未映射位置保持恒等会与映射目标
+    撞车（两个逻辑比特输出身份冲突，语义损坏）——补全规则：
+    **活跃映射优先**，未映射位置让出被占用的目标、分配剩余空闲
+    目标（优先恒等，否则任意）。
+    """
+    full = {int(k): int(v) for k, v in mapping.items()}
+    used = set(full.values())
+    free_sources = [p for p in range(n) if p not in full]
+    free_targets = [t for t in range(n) if t not in used]
+    for p in free_sources:
+        if p in free_targets:
+            full[p] = p
+            free_targets.remove(p)
+    for p in free_sources:
+        if p not in full:
+            full[p] = free_targets.pop()
+    return full
+
+
 def global_relabel(circ: Circuit, spec, time_budget: float = 25.0) \
-        -> tuple[Circuit, dict] | None:
-    """全局重标记。返回 (新线路, 置换) 或 None（无收益/超时）。
+        -> tuple[Circuit, dict, bool] | None:
+    """全局重标记。返回 (新线路, 置换, 是否精确嵌入) 或 None。
 
     置换 dict：{旧物理位: 新物理位}（作用于线路全部标签与
-    final_layout）。
+    final_layout）。exact=False 时线路中可能残留非相邻 2Q 门
+    （部分嵌入只改善边质量、不保证合法性）——调用方仅应在本组件
+    为 exact 时采用，或自行链化长程门。
     """
     t0 = time.time()
     mapping = _exact_embedding(circ, spec,
@@ -178,6 +207,9 @@ def global_relabel(circ: Circuit, spec, time_budget: float = 25.0) \
     if mapping is None:
         return None
 
+    # 补全为全域双射（防输出身份冲突；2026-11-11 语义测试捕获）
+    mapping = _complete_permutation(mapping, spec.n)
+
     # 应用置换；精确嵌入时删除全部 swap（0-SWAP 消除语义），
     # 部分嵌入仅重标记（swap 保留，收益由非劣化守卫裁决）
     out = Circuit(circ.n, name=circ.name)
@@ -186,7 +218,7 @@ def global_relabel(circ: Circuit, spec, time_budget: float = 25.0) \
         if exact and inst.name == "swap":
             n_swap_removed += 1
             continue
-        qs = tuple(int(mapping.get(int(q), int(q))) for q in inst.qubits)
+        qs = tuple(int(mapping[int(q)]) for q in inst.qubits)
         out.append(Inst(inst.name, qs, inst.params))
     for m_ in circ.measures:
         out.measures.append(
@@ -200,4 +232,4 @@ def global_relabel(circ: Circuit, spec, time_budget: float = 25.0) \
             if inst.nq == 2 and inst.name != "swap":
                 if not spec.adj[int(inst.qubits[0]), int(inst.qubits[1])]:
                     return None
-    return out, mapping
+    return out, mapping, exact

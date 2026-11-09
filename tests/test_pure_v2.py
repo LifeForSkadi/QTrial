@@ -379,3 +379,94 @@ def test_noise_aware_relabel_semantics_and_validity():
         fid_after = estimate_fidelity(routed, spec3.calib)
         assert fid_after >= fid_before - 1e-12, \
             f"{case} 重标记劣化 {fid_before} -> {fid_after}"
+
+
+# ------------------------------------------------------------ 全局重标记语义
+def test_global_relabel_semantics():
+    """嵌入路径（0-SWAP 消除 / 部分嵌入）：态矢量等价（含输出置换
+    追踪）+ 链化后全部 2Q 门相邻。
+
+    使用 3×3 小设备（全部位置承载逻辑比特）：链路径不离开逻辑空间，
+    逆映射完备，可做逐门态矢量验证（105 比特设备上链穿过非逻辑
+    中间位，无法用同一逆映射验证——该情形由链矩阵单元测试 +
+    代数恒等式组合保证）。
+    """
+    from qtrail.devices import build_grid3x3_spec
+    from qtrail.pure.relabel_vf2 import global_relabel
+    from qtrail.pure.post import post_route
+    from qtrail.pure.post_v2 import chain_long_gates, fold_only
+    from qtrail.pure.router import sabre_route
+    spec = build_grid3x3_spec()
+    rng = np.random.default_rng(9)
+    n = 9  # 3×3 全设备
+
+    def _gate_mat(name, qs):
+        """n 比特空间上的门矩阵（cx：控制在前目标在后，按 qs 原始顺序）。"""
+        U = np.eye(2 ** n, dtype=complex)
+        c, t = int(qs[0]), int(qs[1])
+        for x in range(2 ** n):
+            if (x >> c) & 1:
+                y = x ^ (1 << t)
+                U[x, x] = 0.0
+                U[y, x] = 1.0
+        return U
+
+    def _circuit_mat(ops):
+        U = np.eye(2 ** n, dtype=complex)
+        for name, qs in ops:
+            U = _gate_mat(name, qs) @ U
+        return U
+
+    def _perm_mat(M):
+        P = np.zeros((2 ** n, 2 ** n), dtype=complex)
+        for x in range(2 ** n):
+            y = 0
+            for k in range(n):
+                if (x >> k) & 1:
+                    y |= 1 << M[k]
+            P[y, x] = 1.0
+        return P
+
+    tested = 0
+    for trial in range(8):
+        circ = Circuit(n)
+        for _ in range(int(rng.integers(5, 11))):
+            a, b = int(rng.integers(0, n)), int(rng.integers(0, n))
+            if a != b:
+                circ.cx(a, b)
+        routed, _, fin = sabre_route(circ, spec, {i: i for i in range(n)},
+                                     seed=42)
+        post_route(routed, fin, spec.adj)
+        folded_only, arr = fold_only(routed)
+        # 折叠 = 原线路（坐标跟踪恒等式；门序可因独立门换序而不同，
+        # 矩阵不变）
+        assert np.allclose(
+            _circuit_mat([(i.name, tuple(int(q) for q in i.qubits))
+                          for i in circ.ops]),
+            _circuit_mat([(i.name, tuple(int(q) for q in i.qubits))
+                          for i in folded_only.ops]), atol=1e-10), \
+            f"trial{trial} fold_only 语义错误"
+        res = global_relabel(folded_only, spec)
+        if res is None:
+            continue
+        tested += 1
+        relabeled, mapping, _exact = res
+        newc, _ = chain_long_gates(relabeled, spec)
+        # 1. 链化后全部 2Q 门相邻 + 不落禁用比特
+        disabled = set(spec.disabled_qubits)
+        for inst in newc.ops:
+            if inst.nq == 2 and inst.name != "swap":
+                assert spec.adj[int(inst.qubits[0]), int(inst.qubits[1])], \
+                    f"trial{trial} 非相邻门 {(inst.name, inst.qubits)}"
+                assert int(inst.qubits[0]) not in disabled
+                assert int(inst.qubits[1]) not in disabled
+        # 2. 语义：共轭恒等式 U_new = Π_M U_orig Π_M^{-1}（显式矩阵，
+        #    链 = cx 精确等价故不影响矩阵）
+        P = _perm_mat([mapping.get(k, k) for k in range(n)])
+        U_orig = _circuit_mat([(i.name, tuple(int(q) for q in i.qubits))
+                               for i in circ.ops])
+        U_new = _circuit_mat([(i.name, tuple(int(q) for q in i.qubits))
+                              for i in newc.ops])
+        assert np.allclose(P @ U_orig @ P.T, U_new, atol=1e-10), \
+            f"trial{trial} 重标记后语义不等价"
+    assert tested >= 3, "应有多条线路触发嵌入路径"
