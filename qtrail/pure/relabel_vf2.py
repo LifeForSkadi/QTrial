@@ -205,6 +205,8 @@ def global_relabel(circ: Circuit, spec, time_budget: float | None = None) \
     time_budget 为墙钟预算（秒，默认 25；2026-11-12 用户决定从迭代
     计数改回）：精确嵌入优先 15s，余量给部分嵌入。
     """
+    if time_budget is None:
+        time_budget = 25.0
     t0 = time.time()
     mapping = _exact_embedding(circ, spec,
                                time_budget=min(time_budget, 15.0))
