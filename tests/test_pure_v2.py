@@ -90,10 +90,15 @@ def test_merge_1q_runs_semantics_and_reduction():
         U_before = _matrix_of_ops(ops)
         merged = merge_1q_runs(ops)
         if merged:
-            assert len(ops) == 1 and ops[0].name == "u3"
-            th, ph, la = ops[0].params
-            ops_synth = [Inst(g, (0,), p) for g, p in _u3_to_rzsx(th, ph, la)]
-            assert _up_to_phase(_matrix_of_ops(ops_synth), U_before)
+            if len(ops) == 0:
+                # 恒等游程整体删除（x·x/sx⁴ 类）：矩阵应为恒等
+                assert _up_to_phase(np.eye(2), U_before)
+            else:
+                assert len(ops) == 1 and ops[0].name == "u3"
+                th, ph, la = ops[0].params
+                ops_synth = [Inst(g, (0,), p)
+                             for g, p in _u3_to_rzsx(th, ph, la)]
+                assert _up_to_phase(_matrix_of_ops(ops_synth), U_before)
 
 
 def test_merge_1q_runs_single_gate_untouched():
@@ -302,8 +307,9 @@ def test_v5_reduces_1q_gate_count(case):
     n1q = lambda qc: sum(1 for i in qc.ops if i.name in ("rz", "sx", "x"))
     assert n1q(qc_v5) < n1q(qc_v4), \
         f"{case}: v5 1Q {n1q(qc_v5)} 未少于 v4 {n1q(qc_v4)}"
-    assert sum(1 for i in qc_v5.ops if i.name == "cz") == \
-        sum(1 for i in qc_v4.ops if i.name == "cz"), "2Q 门数不应变化"
+    # B6（cz 对消）后 2Q 门数可减少（语义等价测试保证正确性）
+    assert sum(1 for i in qc_v5.ops if i.name == "cz") <= \
+        sum(1 for i in qc_v4.ops if i.name == "cz"), "2Q 门数不应增加"
 
 
 def test_v5_hardware_valid():

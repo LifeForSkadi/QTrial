@@ -106,16 +106,21 @@ def merge_1q_runs(out_ops: list) -> int:
                 # 剥离全局相位（sx 行列式为 i，游程乘积 det≠1；1Q 门的
                 # 全局相位即全系统全局相位，物理无关、剥离精确）
                 U = U / np.sqrt(np.linalg.det(U))
-                params = _mat_to_u3_params(U)
-                # 收益检查（2026-11-09 自审计修复，v6 移植缺陷）：只有
-                # 合成后的门数少于原游程才合并——短游程（2-4 门）合成
-                # ZSXXZ 5 门反而膨胀（qft5 实测 +10 门）；长游程（>5 门）
-                # 与 H 形游程的收益保留
-                if len(_u3_to_rzsx(*params)) < (j - i):
-                    out.append(Inst("u3", (q,), params))
+                # 恒等游程整体删除（x·x、sx⁴、H² 类；对标
+                # RemoveIdentityEquivalent）
+                if abs(np.trace(U)) / 2 > 1 - 1e-9:
                     merged += 1
                 else:
-                    out.extend(out_ops[i:j])
+                    params = _mat_to_u3_params(U)
+                    # 收益检查（2026-11-09 自审计修复，v6 移植缺陷）：
+                    # 只有合成后的门数少于原游程才合并——短游程（2-4
+                    # 门）合成 ZSXXZ 5 门反而膨胀（qft5 实测 +10 门）；
+                    # 长游程（>5 门）与 H 形游程的收益保留
+                    if len(_u3_to_rzsx(*params)) < (j - i):
+                        out.append(Inst("u3", (q,), params))
+                        merged += 1
+                    else:
+                        out.extend(out_ops[i:j])
             else:
                 out.append(inst)
             i = j
@@ -132,6 +137,105 @@ def _is_h_block(ops, i):
             and ops[i + 2].name == "rz"
             and abs(ops[i].params[0] - H_GATE[0]) < 1e-9
             and abs(ops[i + 2].params[0] - H_GATE[0]) < 1e-9)
+
+
+def _strip_identity_1q(out_ops: list) -> int:
+    """B4 组件：恒等 1Q 门移除（对标 RemoveIdentityEquivalent）。
+
+    rz 角度模 2π 为 0 的门删除；相邻同比特 x·x = I 对消；4 个相邻
+    sx = I（sx⁴ 恒等，sx 自逆）。返回移除门数。
+    """
+    removed = 0
+    n = len(out_ops)
+    i = 0
+    while i < n:
+        inst = out_ops[i]
+        if inst.name == "rz":
+            th = inst.params[0] % (2 * math.pi)
+            if abs(th) < 1e-9 or abs(th - 2 * math.pi) < 1e-9:
+                del out_ops[i]
+                n -= 1
+                removed += 1
+                continue
+        if inst.name == "x" and i + 1 < n and out_ops[i + 1].name == "x" \
+                and out_ops[i + 1].qubits == inst.qubits:
+            del out_ops[i:i + 2]
+            n -= 2
+            removed += 2
+            continue
+        if inst.name == "sx" and i + 3 < n \
+                and all(out_ops[i + k].name == "sx"
+                        and out_ops[i + k].qubits == inst.qubits
+                        for k in range(1, 4)):
+            del out_ops[i:i + 4]
+            n -= 4
+            removed += 4
+            continue
+        i += 1
+    return removed
+
+
+def _absorb_h(out_ops: list) -> int:
+    """B5 组件：H 吸收（对标 Optimize1qGates 的 H·rz·H = rx 语义）。
+
+    恒等式：rz(θ)·H = H·rx(θ)、H·rz(θ) = rx(θ)·H。合并方向取
+    "向 rx 坍缩"：H,rz(θ),H → rx(θ)（7 门 → ZXZ 3 门）。实现为
+    窗口重写：H 块 (rz(π/2),sx,rz(π/2)) 与其相邻 rz 合并为
+    rx(θ) = rz(π/2),sx,rz(θ)（ZXZ 形），再把新 rz 并入相邻游程。
+    只消解不凭空重排——逐窗口扫描，单调（每步净减 ≥2 门）。
+    """
+    n_changed = 0
+    i = 0
+    n = len(out_ops)
+    while i < n:
+        # 模式：H,rz(θ),H → rx(θ)（rz 夹在两个 H 块之间）
+        if (i + 4 < n and _is_h_block(out_ops, i)
+                and out_ops[i + 3].name == "rz"
+                and out_ops[i + 3].qubits[0] == out_ops[i].qubits[0]
+                and _is_h_block(out_ops, i + 4)):
+            q = out_ops[i].qubits[0]
+            th = out_ops[i + 3].params[0]
+            # rx(θ) = rz(π/2), sx, rz(θ)
+            out_ops[i:i + 7] = [Inst("rz", (q,), (H_GATE[0],)),
+                                Inst("sx", (q,)),
+                                Inst("rz", (q,), (th,))]
+            n -= 4
+            n_changed += 1
+            i += 3
+            continue
+        i += 1
+    return n_changed
+
+
+def _cancel_adjacent_cz(out_ops: list) -> int:
+    """B6 组件：cz 相邻对消（cz 全对易、cz·cz = I）。
+
+    对标 CommutativeCancellation 的 cz 部分：补全 cx·cx 消解链
+    （H 对消 → cz 对消 → H 对消）。窗口内同对 cz 且中间全为对易门
+    （cz/对角 1Q）时成对消除。
+    """
+    removed = 0
+    i = 0
+    n = len(out_ops)
+    while i < n:
+        a = out_ops[i]
+        if a.name != "cz":
+            i += 1
+            continue
+        jmax = min(i + 8, n)
+        for j in range(i + 1, jmax):
+            b = out_ops[j]
+            if b.name == "cz" and b.qubits == a.qubits \
+                    and all(out_ops[k].name in ("cz", "rz")
+                            for k in range(i + 1, j)):
+                del out_ops[j]
+                del out_ops[i]
+                n -= 2
+                removed += 2
+                break
+        else:
+            i += 1
+    return removed
 
 
 def _cancel_adjacent_h(out_ops: list) -> None:
@@ -752,7 +856,10 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
         merge_adjacent_rz(out)
         before = len(out.ops)
         commute_rz_through_cz(out.ops)   # A2：可交换消解
+        _absorb_h(out.ops)               # B5：H·rz·H → rx（H 吸收）
+        _cancel_adjacent_cz(out.ops)     # B6：cz·cz = I（补全 cx·cx 消解链）
         _cancel_adjacent_h(out.ops)
+        _strip_identity_1q(out.ops)      # B4：恒等门移除
         changed = changed or len(out.ops) != before
         if not changed:
             break
