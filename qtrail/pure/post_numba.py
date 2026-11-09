@@ -31,8 +31,12 @@ _CODE_TO_NAME = {U3: "u3", U1: "u1", CX: "cx", CZ: "cz", SWAP: "swap"}
 
 if _HAS_NUMBA:
     @njit(cache=True)
-    def _swap_past_arr(a, b, gname, gq0, gq1):
-        """swap(a,b) 穿过门 g 的重写。返回 (ok, name', q0', q1')。"""
+    def _swap_past_arr(a, b, gname, gq0, gq1, amat):
+        """swap(a,b) 穿过门 g 的重写。返回 (ok, name', q0', q1')。
+
+        amat 非 None 时，单边触碰重写后的 2Q 端点对必须相邻
+        （与 post.py 的 adj 连通性约束逐位等价，2026-11-09 修复）。
+        """
         if gname == CX:
             if (gq0 != a and gq0 != b and gq1 != a and gq1 != b):
                 return True, CX, gq0, gq1
@@ -40,6 +44,8 @@ if _HAS_NUMBA:
                 return True, CX, gq1, gq0
             q0 = b if gq0 == a else (a if gq0 == b else gq0)
             q1 = b if gq1 == a else (a if gq1 == b else gq1)
+            if amat is not None and not amat[q0, q1]:
+                return False, gname, gq0, gq1
             return True, CX, q0, q1
         if gname == CZ or gname == SWAP:
             # 对称 2Q 门（cz / 异边 swap）：单边触碰重标记；双边（同边已被
@@ -50,6 +56,8 @@ if _HAS_NUMBA:
                 return True, gname, gq0, gq1
             q0 = b if gq0 == a else (a if gq0 == b else gq0)
             q1 = b if gq1 == a else (a if gq1 == b else gq1)
+            if amat is not None and not amat[q0, q1]:
+                return False, gname, gq0, gq1
             return True, gname, q0, q1
         if gname == U3 or gname == U1:
             q = gq0
@@ -61,7 +69,7 @@ if _HAS_NUMBA:
         return False, gname, gq0, gq1
 
     @njit(cache=True)
-    def _push_round(nm, a0, a1, bnm, ba0, ba1, bsrc, src, n):
+    def _push_round(nm, a0, a1, bnm, ba0, ba1, bsrc, src, n, amat):
         """一轮单向推挤 + 消解（流式压实到 b* 缓冲）。
         返回 (新长度, 是否变化)。与 Python 版 push_swaps 单轮逐位等价。
 
@@ -114,7 +122,7 @@ if _HAS_NUMBA:
                 i += 1
                 changed = True
                 continue
-            ok, rname, rq0, rq1 = _swap_past_arr(a, b, gname, gq0, gq1)
+            ok, rname, rq0, rq1 = _swap_past_arr(a, b, gname, gq0, gq1, amat)
             if ok:
                 bnm[w] = rname
                 ba0[w] = rq0
@@ -147,7 +155,7 @@ if _HAS_NUMBA:
         return w, changed
 
     @njit(cache=True)
-    def _push_swaps_kernel(names, q0, q1, max_rounds):
+    def _push_swaps_kernel(names, q0, q1, max_rounds, amat):
         """多轮推挤至不动点。返回 (最终名字数组, q0, q1, 源索引)。"""
         L = names.shape[0]
         nm = names.copy()
@@ -163,7 +171,8 @@ if _HAS_NUMBA:
         rounds = 0
         while changed and rounds < max_rounds:
             rounds += 1
-            n, changed = _push_round(nm, a0, a1, bnm, ba0, ba1, bsrc, src, n)
+            n, changed = _push_round(nm, a0, a1, bnm, ba0, ba1, bsrc, src,
+                                     n, amat)
             nm, bnm = bnm, nm
             a0, ba0 = ba0, a0
             a1, ba1 = ba1, a1
@@ -198,13 +207,21 @@ def _rebuild(ops, nm, nq0, nq1, src):
     return out
 
 
-def numba_push_swaps(circ, max_rounds: int = 200):
-    """push_swaps 的 Numba 版：返回重写后的 ops 列表（Inst）。"""
+def numba_push_swaps(circ, adj=None, max_rounds: int = 200):
+    """push_swaps 的 Numba 版：返回重写后的 ops 列表（Inst）。
+
+    adj 非 None 时启用连通性约束（与 Python 版逐位等价）；
+    adj=None 时用全 True 假邻接矩阵（无约束，行为等价）。
+    """
     ops = circ.ops
     if not ops:
         return list(ops)
     names, q0, q1 = _circ_to_arrays(ops)
-    nm, nq0, nq1, src = _push_swaps_kernel(names, q0, q1, max_rounds)
+    if adj is None:
+        amat = None
+    else:
+        amat = np.ascontiguousarray(adj.astype(np.bool_))
+    nm, nq0, nq1, src = _push_swaps_kernel(names, q0, q1, max_rounds, amat)
     return _rebuild(ops, nm, nq0, nq1, src)
 
 

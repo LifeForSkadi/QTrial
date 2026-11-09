@@ -2,7 +2,8 @@
 import numpy as np
 import pytest
 
-from qtrail.devices import build_grid3x3_spec, build_tianyan287_spec
+from qtrail.devices import (build_grid3x3_spec, build_tianyan287_spec,
+                            build_tianyan287_real_spec)
 from qtrail.devices.calibration import generate_synthetic_calibration
 
 
@@ -99,3 +100,38 @@ def test_distance_matrix_lambda_interpolation():
     assert np.allclose(d1, spec.noise_dist)
     half = spec.distance_matrix(noise_lambda=0.5)
     assert np.allclose(half, 0.5 * (d0 + d1))
+
+
+# ---------------------------------------------------------------- 真机拓扑
+def test_tianyan287_real_spec_geometry():
+    """真机拓扑 spec：168 可用边、4 禁用比特、平台标签、真实校准快照。"""
+    spec = build_tianyan287_real_spec()
+    assert spec.n == 105
+    assert spec.adj.sum() // 2 == 168          # 182 设计边 - 14 禁用耦合器
+    assert spec.disabled_qubits == [21, 26, 34, 89]
+    assert spec.qubit_labels is not None
+    assert spec.qubit_labels[0] == 1 and spec.qubit_labels[-1] == 105
+    # 禁用比特无任何边
+    for q in spec.disabled_qubits:
+        assert spec.adj[q].sum() == 0
+    # 校准为平台快照（T1 均值 ~50us 量级，远小于合成 72us 口径）
+    assert 30 < spec.calib.t1.mean() < 70
+    # 距离/噪声距离有限且对角为 0
+    assert np.all(np.isfinite(spec.dist))
+    assert np.all(np.isfinite(spec.noise_dist))
+    assert np.allclose(np.diag(spec.dist), 0)
+
+
+def test_tianyan287_real_topology_differs_from_grid():
+    """真机拓扑与评测口径（188 矩形网格）结构不同（D2 核验结论）。"""
+    real = build_tianyan287_real_spec()
+    grid = build_tianyan287_spec()
+    real_edges = {(i, j) for i in range(105) for j in range(i + 1, 105)
+                  if real.adj[i, j]}
+    grid_edges = {(i, j) for i in range(105) for j in range(i + 1, 105)
+                  if grid.adj[i, j]}
+    assert len(real_edges) == 168
+    assert len(grid_edges) == 188
+    # 交集明显小于任一方（真机为弯曲排布，非矩形网格）
+    inter = real_edges & grid_edges
+    assert len(inter) < 150

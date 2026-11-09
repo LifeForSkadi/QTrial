@@ -28,6 +28,31 @@ def sabre_transpile(qc: QuantumCircuit, cm: CouplingMap,
                      seed_transpiler=seed)
 
 
+def build_target(spec):
+    """天衍-287 校准噪声 Target（噪声感知基线注入用，口径同 final_report_bench）。"""
+    from qiskit.circuit.library import CZGate, RZGate, SXGate, XGate
+    from qiskit.transpiler import InstructionProperties, Target
+    calib = spec.calib
+    t = Target(num_qubits=spec.n)
+    t.add_instruction(RZGate(0.0), properties={
+        (q,): InstructionProperties(error=float(calib.err_1q[q]), duration=1.0)
+        for q in range(spec.n)})
+    t.add_instruction(CZGate(), properties={
+        (a, b): InstructionProperties(error=float(e), duration=1.0)
+        for (a, b), e in calib.err_2q.items() for a, b in ((a, b), (b, a))})
+    t.add_instruction(XGate(), properties={(q,): None for q in range(spec.n)})
+    t.add_instruction(SXGate(), properties={(q,): None for q in range(spec.n)})
+    return t
+
+
+def aware_transpile(qc: QuantumCircuit, target, optimization_level: int = 1,
+                    seed: int = 0) -> QuantumCircuit:
+    """噪声感知 qiskit 编译管线（感知 O1/O3 基线：以校准 Target 注入噪声模型）。"""
+    return transpile(qc, target=target, basis_gates=PLATFORM_BASIS,
+                     optimization_level=optimization_level,
+                     seed_transpiler=seed)
+
+
 def trivial_route(qc: QuantumCircuit, cm: CouplingMap, seed: int = 0):
     """Identity layout + SabreSwap (sanity floor)."""
     pm = PassManager([SabreSwap(coupling_map=cm, heuristic="decay", seed=seed)])

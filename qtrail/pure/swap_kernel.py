@@ -25,7 +25,7 @@ if _HAS_NUMBA:
     def _after_dist_flat(ea, eb, q1, q2, dist_flat, N):
         C = ea.shape[0]
         F = q1.shape[0]
-        D = np.empty((C, F), dtype=np.int64)
+        D = np.empty((C, F), dtype=dist_flat.dtype)
         for i in range(C):
             a = ea[i]
             b = eb[i]
@@ -46,7 +46,7 @@ else:
     def _after_dist_flat(ea, eb, q1, q2, dist_flat, N):
         C = ea.shape[0]
         F = q1.shape[0]
-        D = np.empty((C, F), dtype=np.int64)
+        D = np.empty((C, F), dtype=dist_flat.dtype)
         for i in range(C):
             a, b = int(ea[i]), int(eb[i])
             for f in range(F):

@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import re
+
 from docx import Document
 from docx.enum.section import WD_SECTION
 from docx.enum.style import WD_STYLE_TYPE
@@ -20,6 +22,17 @@ from docx.shared import Cm, Pt, RGBColor
 SONG = "宋体"
 HEI = "黑体"
 TIMES = "Times New Roman"
+
+
+def cjk_compact(text):
+    """删除中文与数字/符号/英文接壤处的空格（中中、英英之间保留）。
+
+    规则：CJK 字符与任意非空白非 CJK 字符之间的空白全部删除；纯中文间
+    与纯西文间的空格保留（如“摘  要”“QASM 2.0”不变）。
+    """
+    text = re.sub(r"(?<=[一-鿿])\s+(?=[^\s一-鿿])", "", text)
+    text = re.sub(r"(?<=[^\s一-鿿])\s+(?=[一-鿿])", "", text)
+    return text
 
 
 def set_font(run, chinese=SONG, western=TIMES, size=12, bold=False):
@@ -49,7 +62,7 @@ def para(doc, text="", *, style=None, align=WD_ALIGN_PARAGRAPH.JUSTIFY,
     if indent_chars:
         pf.first_line_indent = Pt(size * indent_chars)
     if text:
-        run = p.add_run(text)
+        run = p.add_run(cjk_compact(text))
         set_font(run, chinese=chinese, size=size, bold=bold)
     return p
 
@@ -64,7 +77,7 @@ def heading1(doc, text, page_break=False):
     pf.space_before = Pt(16)
     pf.space_after = Pt(16)
     pf.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
-    run = p.add_run(text)
+    run = p.add_run(cjk_compact(text))
     set_font(run, chinese=HEI, size=16, bold=True)
     p.style = doc.styles["Heading 1"]
     # 标题样式字体同步（目录域提取用）
@@ -84,7 +97,7 @@ def heading2(doc, text):
     pf.space_before = Pt(6)
     pf.space_after = Pt(6)
     pf.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
-    run = p.add_run(text)
+    run = p.add_run(cjk_compact(text))
     set_font(run, chinese=HEI, size=14, bold=True)
     p.style = doc.styles["Heading 2"]
     st = doc.styles["Heading 2"]
@@ -103,7 +116,7 @@ def heading3(doc, text):
     pf.space_before = Pt(6)
     pf.space_after = Pt(6)
     pf.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
-    run = p.add_run(text)
+    run = p.add_run(cjk_compact(text))
     set_font(run, chinese=HEI, size=12, bold=True)
     p.style = doc.styles["Heading 3"]
     st = doc.styles["Heading 3"]
@@ -128,6 +141,7 @@ def figure(doc, img_path, caption, width_cm=14.0):
     cap.paragraph_format.space_after = Pt(10)
     cap.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
     seq, _, title = caption.partition("  ")
+    title = cjk_compact(title)
     run = cap.add_run(seq + " ")
     set_font(run, size=10.5, bold=True)
     run2 = cap.add_run(title)
@@ -141,9 +155,71 @@ def table_title(doc, caption):
     p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before = Pt(10)
     p.paragraph_format.space_after = Pt(3)
-    run = p.add_run(caption)
+    run = p.add_run(cjk_compact(caption))
     set_font(run, size=10.5, bold=True)
     return p
+
+
+def three_line_table(doc, caption, header, rows, note=None, aligns=None):
+    """三线表（北航毕业论文格式）：顶线、底线为粗线，表头线为细线，
+    无竖线与内横线。表题置于表上方居中，表注置于表格下方（五号）。"""
+    table_title(doc, caption)
+    n_cols = len(header)
+    tbl = doc.add_table(rows=1 + len(rows), cols=n_cols)
+    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tbl.autofit = True
+    # 表头
+    for j, h in enumerate(header):
+        cell = tbl.cell(0, j)
+        cell.text = ""
+        p = cell.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(cjk_compact(str(h)))
+        set_font(run, size=10.5, bold=True)
+    # 数据行
+    for i, row in enumerate(rows, 1):
+        for j, v in enumerate(row):
+            cell = tbl.cell(i, j)
+            cell.text = ""
+            p = cell.paragraphs[0]
+            align = (WD_ALIGN_PARAGRAPH.LEFT if aligns and aligns[j] == "l"
+                     else WD_ALIGN_PARAGRAPH.CENTER)
+            p.alignment = align
+            run = p.add_run(cjk_compact(str(v)))
+            set_font(run, size=10.5)
+    # 三线边框：表格级顶/底粗线、无竖线与内横线
+    tblPr = tbl._tbl.tblPr
+    borders = OxmlElement("w:tblBorders")
+    for tag, sz in (("top", 12), ("bottom", 12)):
+        el = OxmlElement(f"w:{tag}")
+        el.set(qn("w:val"), "single")
+        el.set(qn("w:sz"), str(sz))
+        el.set(qn("w:color"), "000000")
+        borders.append(el)
+    for tag in ("left", "right", "insideH", "insideV"):
+        el = OxmlElement(f"w:{tag}")
+        el.set(qn("w:val"), "none")
+        borders.append(el)
+    tblPr.append(borders)
+    # 表头行底细线（逐格下边框）
+    for j in range(n_cols):
+        tcPr = tbl.cell(0, j)._tc.get_or_add_tcPr()
+        bd = OxmlElement("w:tcBorders")
+        el = OxmlElement("w:bottom")
+        el.set(qn("w:val"), "single")
+        el.set(qn("w:sz"), "6")
+        el.set(qn("w:color"), "000000")
+        bd.append(el)
+        tcPr.append(bd)
+    if note:
+        p = doc.add_paragraph()
+        p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        p.paragraph_format.space_before = Pt(2)
+        p.paragraph_format.space_after = Pt(8)
+        p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+        run = p.add_run(cjk_compact(note))
+        set_font(run, size=10.5)
+    return tbl
 
 
 def ref_para(doc, text):
@@ -172,7 +248,7 @@ def para_with_math(doc, text, *, align=WD_ALIGN_PARAGRAPH.JUSTIFY,
     pf.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
     if indent_chars:
         pf.first_line_indent = Pt(size * indent_chars)
-    for kind, payload in convert_inline(text):
+    for kind, payload in convert_inline(cjk_compact(text)):
         if kind == "t":
             run = p.add_run(payload)
             set_font(run, size=size)
@@ -237,7 +313,7 @@ def insert_toc(doc):
     fld2 = OxmlElement("w:fldChar")
     fld2.set(qn("w:fldCharType"), "separate")
     t = OxmlElement("w:t")
-    t.text = "（目录：在 Word 中右键此处选择“更新域”自动生成三级目录）"
+    t.text = "（目录：在Word中右键此处选择“更新域”自动生成三级目录）"
     fld3 = OxmlElement("w:fldChar")
     fld3.set(qn("w:fldCharType"), "end")
     r = run._r

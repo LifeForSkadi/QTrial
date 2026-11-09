@@ -36,11 +36,13 @@ def build_noise_target(spec: DeviceSpec) -> Target:
 
 def route_target_post(qc: QuantumCircuit, spec: DeviceSpec, layout: dict,
                       seed: int = 0, optimization_level: int = 1,
-                      basis: list | None = None) -> QuantumCircuit:
+                      basis: list | None = None,
+                      callback=None) -> QuantumCircuit:
     """QTrial 布局 + qiskit O1 预设（Target 驱动）→ 路由后处理后的线路。
 
     返回仍含 swap 门的线路（basis 默认 ROUTING_BASIS），swap 计数与
-    最终布局由调用方按既有口径统计。
+    最终布局由调用方按既有口径统计。callback 透传给 transpile
+    （O3 筛选用其实现单候选超时中止）。
     """
     target = build_noise_target(spec)
     init = Layout({qc.qubits[k]: v for k, v in layout.items()})
@@ -48,4 +50,5 @@ def route_target_post(qc: QuantumCircuit, spec: DeviceSpec, layout: dict,
                      basis_gates=basis or ROUTING_BASIS,
                      optimization_level=optimization_level,
                      initial_layout=init,
-                     seed_transpiler=seed)
+                     seed_transpiler=seed,
+                     callback=callback)

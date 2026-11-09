@@ -34,7 +34,8 @@ class PureMapper:
 
     def __init__(self, spec, policy=None, cfg=None, dev="cuda", seed=0,
                  selection_rule="swap", lam_ms=0.0, use_post=True,
-                 routing_seeds=1, fidelity_predictor=None):
+                 routing_seeds=1, fidelity_predictor=None,
+                 pipeline: str = "v4"):
         from qtrail.config import Config
         self.spec = spec
         self.policy = policy
@@ -43,6 +44,9 @@ class PureMapper:
         self.seed = seed
         if selection_rule not in ("swap", "fidelity", "depth"):
             raise ValueError(f"unknown selection rule: {selection_rule}")
+        if pipeline not in ("v4", "v5"):
+            raise ValueError(f"unknown pipeline: {pipeline} (v4 | v5)")
+        self.pipeline = pipeline
         self.selection_rule = selection_rule
         self.lam_ms = lam_ms
         self.use_post = use_post
@@ -84,6 +88,22 @@ class PureMapper:
             scored.append(best_entry)
         return scored
 
+    def _v5_not_worse(self, m_v5, m_v4) -> bool:
+        """非劣化开关：v5 产物按决胜规则不劣于 v4 才采用（2026-11-09）。
+
+        fidelity 规则：保真度不降；swap 规则：swap 更少或持平且保真度
+        不降；depth 规则：深度更浅或持平且保真度不降。
+        """
+        if self.selection_rule == "swap":
+            return (m_v5["swap_count"] < m_v4["swap_count"]
+                    or (m_v5["swap_count"] == m_v4["swap_count"]
+                        and m_v5["est_fidelity"] >= m_v4["est_fidelity"] - 1e-12))
+        if self.selection_rule == "depth":
+            return (m_v5["depth"] < m_v4["depth"]
+                    or (m_v5["depth"] <= m_v4["depth"]
+                        and m_v5["est_fidelity"] >= m_v4["est_fidelity"] - 1e-12))
+        return m_v5["est_fidelity"] >= m_v4["est_fidelity"] - 1e-12
+
     def _select(self, scored):
         """三规则决胜（与主 Mapper 同逻辑）。"""
         if self.selection_rule == "swap":
@@ -105,6 +125,7 @@ class PureMapper:
         dist_eff = self._dist_eff(noise_lambda)
         pool = []
 
+        disabled = self.spec.disabled_qubits
         if self.policy is not None:
             starts = multistart_decode(self.policy, graph, self.spec,
                                        cfg.decode, noise_lambda=noise_lambda,
@@ -112,7 +133,8 @@ class PureMapper:
             for s in starts[:cfg.postprocess.starts]:
                 if cfg.postprocess.enabled:
                     pi, _ = improve_layout(graph, dist_eff, s,
-                                           cfg.postprocess, rng=self._rng)
+                                           cfg.postprocess, rng=self._rng,
+                                           disabled_qubits=disabled)
                 else:
                     pi = s
                 pool.append(pi)
@@ -124,7 +146,8 @@ class PureMapper:
                 for s0 in starts0[:cfg.postprocess.starts]:
                     if cfg.postprocess.enabled:
                         pi0, _ = improve_layout(graph, self.spec.dist, s0,
-                                                cfg.postprocess, rng=self._rng)
+                                                cfg.postprocess, rng=self._rng,
+                                                disabled_qubits=disabled)
                     else:
                         pi0 = s0
                     pool.append(pi0)
@@ -137,9 +160,12 @@ class PureMapper:
         if not pool:
             pi_h = heuristic_layout(graph, self.spec, self._rng)
             pi_h, _ = improve_layout(graph, self.spec.dist, pi_h,
-                                     cfg.postprocess, rng=self._rng)
+                                     cfg.postprocess, rng=self._rng,
+                                     disabled_qubits=self.spec.disabled_qubits)
             pool.append(pi_h)
-        pool.append(np.arange(graph.n, dtype=np.int64) % self.spec.n)
+        # 平凡布局候选：仅使用非禁用物理比特（2026-11-09 缺口 1 修复）
+        usable = self.spec.usable_positions
+        pool.append(usable[np.arange(graph.n) % len(usable)])
 
         scored = self._score_candidates(circ, graph, pool)
         best_pi, best_swaps = self._select(scored)
@@ -163,11 +189,47 @@ class PureMapper:
         layout = {i: int(pi[i]) for i in range(graph.n)}
 
         routed, swaps, final_layout = sabre_route(
-            circ, self.spec, layout, seed=self.seed, lam_ms=self.lam_ms)
+            circ, self.spec, layout, seed=self.seed, lam_ms=self.lam_ms,
+            trials=max(1, self.routing_seeds))
         removed = 0
         if self.use_post:
-            routed, removed = post_route(routed, final_layout)
-        final_qc = decompose_to_platform(routed)
+            # 硬件连通性感知后处理（2026-11-09）：产物 2Q 门全部落在
+            # 耦合图上，保证平台可执行
+            routed, removed = post_route(routed, final_layout,
+                                         self.spec.adj)
+        if self.pipeline == "v5":
+            # v5：置换折叠+LNN 重链化（A1）+ 噪声感知后布局重标记（C1）+
+            # 学习式重标记（L3）+ 2Q 块重合成（A2）+ 1Q 游程优化（B）+
+            # 非劣化开关（劣于 v4 则回退）
+            from qtrail.pure.post_v2 import (
+                collect_resynthesize_2q_blocks, decompose_to_platform_v2,
+                fold_and_relink, learned_relabel, noise_aware_relabel)
+            routed_v4 = routed.copy()
+            fin_v4 = dict(final_layout)
+            final_qc_v4 = decompose_to_platform(routed_v4)
+            folded, fold_arr = fold_and_relink(routed, self.spec)
+            if fold_arr is not None:
+                routed = folded
+                # final_layout 同步：折叠置换 arr 作用于输出物理位
+                for k, v in final_layout.items():
+                    final_layout[k] = int(fold_arr[int(v)])
+            noise_aware_relabel(routed, self.spec, final_layout)
+            if self.policy is not None:
+                learned_relabel(self.policy, self.spec, routed, final_layout,
+                                self.cfg, dev=self.dev, seed=self.seed,
+                                noise_lambda=noise_lambda)
+            routed = collect_resynthesize_2q_blocks(routed, self.spec)
+            final_qc = decompose_to_platform_v2(routed)
+            m_v4 = pure_metrics(final_qc_v4, routed_v4.count("swap"),
+                                self.spec.calib,
+                                predictor=self.fidelity_predictor)
+            m_v5 = pure_metrics(final_qc, routed.count("swap"),
+                                self.spec.calib,
+                                predictor=self.fidelity_predictor)
+            if not self._v5_not_worse(m_v5, m_v4):
+                routed, final_layout, final_qc = routed_v4, fin_v4, final_qc_v4
+        else:
+            final_qc = decompose_to_platform(routed)
         metrics = pure_metrics(final_qc, routed.count("swap"),
                                self.spec.calib,
                                predictor=self.fidelity_predictor)

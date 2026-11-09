@@ -1,0 +1,4 @@
+{"circuit": "20QBT_45CYC_.3D1_.3D2_0.qasm", "ideal_target": "01100111100000100100", "results": [{"method": "ours_o1", "error": "submit failed"}, {"method": "aware_o3", "error": "submit failed"}]}
+{"circuit": "20QBT_45CYC_.3D1_.3D2_0.qasm", "ideal_target": "01100111100000100100", "results": [{"method": "ours_o1", "error": "submit failed"}, {"method": "aware_o3", "error": "submit failed"}]}
+{"circuit": "20QBT_45CYC_.3D1_.3D2_0.qasm", "ideal_target": "01100111100000100100", "results": [{"method": "ours_o1", "error": "submit failed"}, {"method": "aware_o3", "error": "submit failed"}]}
+{"circuit": "20QBT_45CYC_.3D1_.3D2_0.qasm", "ideal_target": "01100111100000100100", "results": [{"method": "ours_o1", "error": "fetch failed: CqlibRequestError: 'Failed to query the experimental result.'"}, {"method": "aware_o3", "error": "fetch failed: CqlibRequestError: 'Failed to query the experimental result.'"}]}

@@ -17,7 +17,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 def main():
     ap = argparse.ArgumentParser(description="QTrial 纯自研映射管线（零 qiskit）")
     ap.add_argument("input", help="OpenQASM 2.0 线路文件")
-    ap.add_argument("--device", default="tianyan-287")
+    ap.add_argument("--device", default="tianyan-287",
+                    choices=["tianyan-287", "tianyan-287-real"],
+                    help="tianyan-287 = 评测口径（188 边矩形网格+合成校准）；"
+                         "tianyan-287-real = 真机拓扑（168 可用边+4 禁用比特+"
+                         "平台校准快照）")
     ap.add_argument("--output", "-o", default="out")
     ap.add_argument("--rule", default="fidelity",
                     choices=["swap", "fidelity", "depth"],
@@ -28,6 +32,9 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--dev", default=None, choices=["cpu", "cuda"])
     ap.add_argument("--no-post", action="store_true", help="禁用后处理栈")
+    ap.add_argument("--pipeline", default="v4", choices=["v4", "v5"],
+                    help="管线版本：v4 = 原管线（默认，行为不变）；"
+                         "v5 = 新管线（1Q 游程优化 + 2Q 块重合成，测试中）")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -39,13 +46,23 @@ def main():
     from qtrail.pure.mapper import PureMapper
     from qtrail.pure.export import to_qasm, to_qcis
 
-    dev_cfg = load_device_config()
+    if args.device == "tianyan-287":
+        dev_cfg = load_device_config()
+    elif args.device == "tianyan-287-real":
+        # 真机拓扑（2026-11-09 API 核验固化）：168 可用边 + 4 禁用比特
+        # + 平台真实校准快照（configs/device_tianyan287_real*.{yaml,json}）
+        dev_cfg = load_device_config("configs/device_tianyan287_real.yaml")
+    else:
+        raise ValueError(f"unknown device: {args.device} "
+                         "(pure 路径支持 tianyan-287 / tianyan-287-real)")
     cfg = Config()
     cfg.device = dev_cfg
-    if args.device != "tianyan-287":
-        raise ValueError(f"unknown device: {args.device} (pure 路径支持 tianyan-287)")
     from qtrail.devices import build_tianyan287_spec
-    spec = build_tianyan287_spec(dev_cfg)
+    if args.device == "tianyan-287":
+        spec = build_tianyan287_spec(dev_cfg)
+    else:
+        from qtrail.devices import build_tianyan287_real_spec
+        spec = build_tianyan287_real_spec(dev_cfg)
 
     import torch
     dev = args.dev or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -70,7 +87,8 @@ def main():
     circ = load_qasm_file(args.input)
     mapper = PureMapper(spec, policy=policy, cfg=cfg, dev=dev, seed=args.seed,
                         selection_rule=args.rule, use_post=not args.no_post,
-                        fidelity_predictor=fidelity_predictor)
+                        fidelity_predictor=fidelity_predictor,
+                        pipeline=args.pipeline)
     res = mapper.map_circuit(circ, circuit_id=Path(args.input).stem)
 
     out_dir = Path(args.output)
@@ -80,7 +98,9 @@ def main():
     qasm_path = out_dir / f"{stem}_mapped.qasm"
     qasm_path.write_text(to_qasm(res["routed_circuit"]), encoding="utf-8")
     qcis_path = out_dir / f"{stem}.qcis"
-    qcis_path.write_text(to_qcis(res["routed_circuit"]), encoding="utf-8")
+    qcis_path.write_text(to_qcis(res["routed_circuit"],
+                                 labels=spec.qubit_labels),
+                         encoding="utf-8")
 
     metrics = dict(res["metrics"])
     metrics["method"] = res["method"]

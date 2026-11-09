@@ -30,6 +30,18 @@ class DeviceSpec:
     def edges(self) -> list:
         return [(i, j) for i in range(self.n) for j in range(i + 1, self.n) if self.adj[i, j]]
 
+    @property
+    def usable_positions(self) -> np.ndarray:
+        """非禁用物理比特索引（布局候选/启发式/LS 重分配只应使用这些位置）。
+
+        禁用比特在硬件中出现 = 拓扑结构变化（特种拓扑），所有映射环节
+        必须统一规避——RL 解码经 d_mask 屏蔽，启发式/平凡候选/LS 经本
+        属性过滤（2026-11-09 缺口 1 修复）。
+        """
+        bad = set(self.disabled_qubits)
+        return np.array([q for q in range(self.n) if q not in bad],
+                        dtype=np.int64)
+
     def distance_matrix(self, noise_lambda: float = 0.0) -> np.ndarray:
         """Effective distance: D_topo + lambda_n * (D_noise - D_topo)."""
         if noise_lambda == 0.0:
@@ -45,6 +57,41 @@ class DeviceSpec:
         for (q0, q1), e in self.calib.err_2q.items():
             m[q0, q1] = m[q1, q0] = e
         return m
+
+
+def usable_spec(spec: "DeviceSpec") -> "DeviceSpec":
+    """剔除禁用比特与孤立比特后按可用子集重索引的规格。
+
+    qiskit 路由要求线路比特数与耦合图一致，且禁用比特不可出现在布局
+    中；live 配置（如 tianyan176 66 注册 65 可用、其中还有孤立比特）
+    需先经此压缩——孤立比特（无耦合边）对映射无意义且会破坏
+    CouplingMap 的节点一致性。
+    """
+    bad = set(spec.disabled_qubits)
+    deg = spec.adj.sum(axis=1)
+    keep = [q for q in range(spec.n) if q not in bad and deg[q] > 0]
+    if len(keep) == spec.n:
+        return spec
+    idx = {q: i for i, q in enumerate(keep)}
+    calib = spec.calib
+    return DeviceSpec(
+        name=spec.name, n=len(keep),
+        adj=spec.adj[np.ix_(keep, keep)].copy(),
+        coords=spec.coords[keep].copy(),
+        dist=spec.dist[np.ix_(keep, keep)].copy(),
+        noise_dist=spec.noise_dist[np.ix_(keep, keep)].copy(),
+        node_features=spec.node_features[keep].copy(),
+        calib=CalibrationData(
+            t1=calib.t1[keep].copy(), t2=calib.t2[keep].copy(),
+            err_1q=calib.err_1q[keep].copy(),
+            err_ro=calib.err_ro[keep].copy(),
+            err_2q={(idx[a], idx[b]): e for (a, b), e in calib.err_2q.items()
+                    if a in idx and b in idx}),
+        absent_couplers=[(idx[a], idx[b]) for a, b in spec.absent_couplers
+                         if a in idx and b in idx],
+        qubit_labels=(spec.qubit_labels[keep].copy()
+                      if spec.qubit_labels is not None else None),
+        disabled_qubits=[])
 
 
 def build_grid_spec(name: str, rows: int, cols: int,

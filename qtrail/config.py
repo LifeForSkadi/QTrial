@@ -85,8 +85,10 @@ class RewardConfig:
 @dataclass
 class GraphConfig:
     """程序图构建选项（数据侧，不影响模型结构/检查点兼容性）。"""
-    temporal_alpha: float = 0.0      # 时序感知加权：边权 += alpha × 交互层跨度数
-                                     # （强调跨时间层的持续耦合，QFT 链式交互受益）
+    temporal_alpha: float = 0.0      # 时序感知加权：边权 += alpha × 该交互对
+                                     # 出现的去重层数（强调跨多层的持续耦合，
+                                     # QFT 链式交互受益；实现见
+                                     # problems/program_graph.py）
 
 
 @dataclass
@@ -103,7 +105,8 @@ class PostProcessConfig:
     patience: int = 50
     big_prob: float = 0.3            # large-perturbation probability (phase 1)
     big_moves: int = 3               # consecutive swaps in a large perturbation
-    phase2_ratio: float = 0.7        # budget share of phase 1 (exploration)
+    phase2_ratio: float = 0.7        # phase 2（精化）预算占比；phase1_moves
+                                     # = max_moves * (1 - phase2_ratio) = 前 30%
     hot_frac: float = 0.25           # top fraction of "hot" logical qubits
     max_moves: int = 5000            # total move budget per start
     embedding_moves: bool = True     # 嵌入感知移动（路径 B：结构匹配借鉴）

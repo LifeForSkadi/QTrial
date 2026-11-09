@@ -19,24 +19,28 @@ def qasm_to_qcis_cqlib(qasm_str: str) -> str:
 
 
 def qasm_to_qcis_fallback(qc: QuantumCircuit) -> str:
-    """Minimal QCIS emitter for the platform basis gates."""
+    """Minimal QCIS emitter for the platform basis gates.
+
+    指令集依据 cqlib 官方 qasm2qcis 表（utils/const.py，2026-11-09 修正）：
+    平台原生单比特门 = RZ / X2P / X2M / Y2P / Y2M，**没有 "X" 指令**：
+      sx → "X2P"（平台 SX 原生指令）；x → "X2P X2P"（两个 π/2 脉冲）。
+    旧版 sx→"RZ(±π/2) X RZ(∓π/2)" 数学上 = Y（非 SX），且 X 非平台指令。
+    """
     lines = []
     for inst in qc.data:
         name = inst.operation.name
         qs = [qc.find_bit(q).index for q in inst.qubits]
         if name == "x":
-            lines.append(f"X Q{qs[0]}")
+            lines.append(f"X2P Q{qs[0]}")
+            lines.append(f"X2P Q{qs[0]}")
         elif name == "sx":
-            # SX = RZ(-pi/2) X RZ(pi/2): emit the universal safe form
-            lines.append(f"RZ Q{qs[0]} {math.pi / 2}")
-            lines.append(f"X Q{qs[0]}")
-            lines.append(f"RZ Q{qs[0]} {-math.pi / 2}")
+            lines.append(f"X2P Q{qs[0]}")
         elif name == "rz":
             lines.append(f"RZ Q{qs[0]} {float(inst.operation.params[0])}")
         elif name == "cz":
             lines.append(f"CZ Q{qs[0]} Q{qs[1]}")
         elif name == "measure":
-            lines.append(f"MEASURE Q{qs[0]}")
+            lines.append(f"M Q{qs[0]}")
         elif name in ("barrier", "reset"):
             continue
         else:

@@ -21,12 +21,15 @@ from qtrail.problems import ProgramGraph
 class AdaptiveLocalSearch:
     def __init__(self, graph: ProgramGraph, dist_eff: np.ndarray,
                  cfg: PostProcessConfig,
-                 rng: np.random.Generator | None = None):
+                 rng: np.random.Generator | None = None,
+                 disabled_qubits: list | None = None):
         self.adj = graph.adj
         self.dist = dist_eff
         self.n = graph.n
         self.cfg = cfg
         self.rng = rng or np.random.default_rng(0)
+        # 禁用比特不可作为重分配目标（2026-11-09 缺口 1 修复）
+        self.disabled = set(disabled_qubits or [])
 
         # "hot" logical qubits: top hot_frac by weighted incident interaction
         degree_w = graph.adj.sum(axis=1)
@@ -170,8 +173,11 @@ class AdaptiveLocalSearch:
 
         if free_phys is not None:
             free = free_phys.copy()
+            free = np.array([p for p in free if int(p) not in self.disabled],
+                            dtype=np.int64)
         else:
-            free = np.array(sorted(set(range(self.dist.shape[0])) - set(pi.tolist())),
+            free = np.array(sorted(set(range(self.dist.shape[0]))
+                                   - set(pi.tolist()) - self.disabled),
                             dtype=np.int64)
 
         for move_i in range(max_moves):
@@ -241,7 +247,9 @@ class AdaptiveLocalSearch:
 
 def improve_layout(graph: ProgramGraph, dist_eff: np.ndarray, start_pi: np.ndarray,
                    cfg: PostProcessConfig, rng: np.random.Generator | None = None,
-                   max_moves: int | None = None) -> tuple[np.ndarray, float]:
+                   max_moves: int | None = None,
+                   disabled_qubits: list | None = None) -> tuple[np.ndarray, float]:
     """Convenience wrapper: single-start adaptive local search."""
-    ls = AdaptiveLocalSearch(graph, dist_eff, cfg, rng=rng)
+    ls = AdaptiveLocalSearch(graph, dist_eff, cfg, rng=rng,
+                             disabled_qubits=disabled_qubits)
     return ls.search(start_pi, max_moves=max_moves)

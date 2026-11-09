@@ -10,6 +10,7 @@ for ANY parseable OpenQASM 2.0 input up to the device size:
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -42,13 +43,14 @@ class MappingResult:
     static_cost: float | None = None   # CO-MAP paper metric: sum 2*d over edges
     baseline_swaps: int | None = None  # SABRE O1 swap count measured in the
                                         # same call (internally consistent)
+    screening: dict | None = None      # O3 路由试探筛选轨迹（o3_screening 时）
 
 
 def heuristic_layout(graph: ProgramGraph, spec: DeviceSpec,
                      rng: np.random.Generator | None = None) -> np.ndarray:
     """Spectral heuristic: Fiedler-vector order of logical qubits mapped onto
     a device Hamiltonian path (grid snake). Never fails, works without a
-    policy."""
+    policy. 路径仅使用非禁用物理比特（2026-11-09 缺口 1 修复）。"""
     n = graph.n
     # Fiedler vector of the weighted Laplacian (2nd smallest eigenvector)
     lap = np.diag(graph.adj.sum(axis=1)) - graph.adj
@@ -66,8 +68,11 @@ def heuristic_layout(graph: ProgramGraph, spec: DeviceSpec,
 
 def _device_snake(spec: DeviceSpec) -> list[int]:
     """设备哈密顿路径：完整网格用行向蛇形（相邻性严格成立）；
-    其余拓扑用贪心最近邻 + BFS 逃逸。"""
+    其余拓扑用贪心最近邻 + BFS 逃逸。禁用比特被排除在路径之外。"""
     import networkx as nx
+
+    disabled = set(spec.disabled_qubits)
+    usable = [q for q in range(spec.n) if q not in disabled]
 
     coords = spec.coords
     # 网格判定：坐标整数、行列数之积 = 设备规模
@@ -77,7 +82,7 @@ def _device_snake(spec: DeviceSpec) -> list[int]:
         if len(rows) * ncols == spec.n:
             path = []
             for ri, r in enumerate(rows):
-                row_q = sorted([i for i in range(spec.n)
+                row_q = sorted([i for i in usable
                                 if int(coords[i][0]) == r],
                                key=lambda i: int(coords[i][1]))
                 path += row_q if ri % 2 == 0 else row_q[::-1]
@@ -85,18 +90,18 @@ def _device_snake(spec: DeviceSpec) -> list[int]:
 
     # 通用贪心路径（最近未访问邻接优先；断点用 BFS 最短路径逃逸）
     g = nx.Graph()
-    g.add_nodes_from(range(spec.n))
-    g.add_edges_from([(i, j) for i in range(spec.n)
-                      for j in range(i + 1, spec.n) if spec.adj[i, j]])
-    center = int(np.argmin(np.abs(spec.coords - spec.coords.mean(axis=0))
-                           .sum(axis=1)))
+    g.add_nodes_from(usable)
+    g.add_edges_from([(i, j) for i in usable for j in range(i + 1, spec.n)
+                      if j in usable and spec.adj[i, j]])
+    center = int(min(usable, key=lambda i: float(
+        np.abs(spec.coords[i] - spec.coords[usable].mean(axis=0)).sum())))
     path = [center]
     visited = {center}
-    while len(path) < spec.n:
-        nbrs = [j for j in range(spec.n) if spec.adj[path[-1], j]
+    while len(path) < len(usable):
+        nbrs = [j for j in usable if spec.adj[path[-1], j]
                 and j not in visited]
         if not nbrs:  # 断点：BFS 到最近未访问节点，取路径逐步加入
-            unvisited = [v for v in range(spec.n) if v not in visited]
+            unvisited = [v for v in usable if v not in visited]
             if not unvisited:
                 break
             target = min(unvisited, key=lambda v: spec.dist[path[-1], v])
@@ -132,7 +137,10 @@ class Mapper:
                  target_post_opt: int = 1,
                  target_post_score_opt: int | None = None,
                  target_post_seeds: int = 4,
-                 target_post_top_per_seed: int | None = None):
+                 target_post_top_per_seed: int | None = None,
+                 o3_screening: bool = False,
+                 o3_budget: float = 600.0,
+                 o3_per_candidate: float = 60.0):
         """use_tket/use_o3: 混合竞技外部采纳（工程增强，默认关闭——
         研究管线的默认配置不依赖任何外部编译器的输出）。
 
@@ -147,6 +155,11 @@ class Mapper:
         （噪声感知 Target 驱动）——路由后重标记/酉综合阶段吸收置换（实测
         QUEKO dense SWAP 92→0），候选按后处理后的真实结果评分
         （布局×管线联合选择）。opt-in，默认 False（原研究管线不变）。
+        o3_screening: O3 档路由试探筛选（需 target_post=True）——候选池先
+        经廉价 SABRE 预筛排序（最优优先），再按序做噪声感知 O3 管线
+        （O3 + 平台基）试探；o3_budget 为总时间预算（秒），o3_per_candidate
+        为单候选上限，红线触发时取已完成候选中的最优者交付；无完成候选
+        时回退常规 SABRE 评分路径。opt-in，默认 False。
         """
         self.spec = spec
         self.policy = policy
@@ -177,6 +190,12 @@ class Mapper:
         self.target_post_seeds = target_post_seeds
         # 每种子入池上限（None = 全量）：多种子×少候选 的多样性分配
         self.target_post_top_per_seed = target_post_top_per_seed
+        if o3_screening and not target_post:
+            raise ValueError("o3_screening requires target_post=True")
+        self.o3_screening = o3_screening
+        self.o3_budget = o3_budget
+        self.o3_per_candidate = o3_per_candidate
+        self._o3_screen = None
         self._rng = np.random.default_rng(seed)
         self._dist_eff_cache = {}
         self.cm = coupling_map_from_spec(spec)
@@ -214,7 +233,8 @@ class Mapper:
                 for s in starts[:cfg.postprocess.starts]:
                     if cfg.postprocess.enabled:
                         pi, cost = improve_layout(graph, dist_eff, s,
-                                                  cfg.postprocess, rng=self._rng)
+                                                  cfg.postprocess, rng=self._rng,
+                                                  disabled_qubits=self.spec.disabled_qubits)
                     else:
                         pi, cost = s, float(graph.cost(s, dist_eff))
                     scored.append((cost, pi))
@@ -240,15 +260,17 @@ class Mapper:
             try:
                 pi = heuristic_layout(graph, self.spec, self._rng)
                 pi, _ = improve_layout(graph, dist_eff, pi, cfg.postprocess,
-                                       rng=self._rng)
+                                       rng=self._rng,
+                                       disabled_qubits=self.spec.disabled_qubits)
                 candidates = [pi]
                 method = "heuristic"
             except Exception as e:  # pragma: no cover - defensive
                 warnings.append(f"heuristic failed: {e}")
 
-        # rung 4: trivial layout
+        # rung 4: trivial layout（仅使用非禁用物理比特，缺口 1 修复）
         if not candidates:
-            candidates = [np.arange(graph.n, dtype=np.int64) % self.spec.n]
+            usable = self.spec.usable_positions
+            candidates = [usable[np.arange(graph.n) % len(usable)]]
 
         # ---- routing-aware re-ranking of top candidates (hybrid pool)
         # Pool = RL layouts + SABRE's own layout (so the routed-swap metric is
@@ -277,7 +299,8 @@ class Mapper:
                         if cfg.postprocess.enabled:
                             pi0, cost0 = improve_layout(
                                 graph, self.spec.dist, s, cfg.postprocess,
-                                rng=self._rng)
+                                rng=self._rng,
+                                disabled_qubits=self.spec.disabled_qubits)
                         else:
                             pi0, cost0 = s, float(graph.cost(s, self.spec.dist))
                         scored0.append((cost0, pi0))
@@ -305,7 +328,8 @@ class Mapper:
                             if cfg.postprocess.enabled:
                                 pi_k, c_k = improve_layout(
                                     graph, dist_eff, s, cfg.postprocess,
-                                    rng=rng_k)
+                                    rng=rng_k,
+                                    disabled_qubits=self.spec.disabled_qubits)
                             else:
                                 pi_k, c_k = s, float(
                                     graph.cost(s, dist_eff))
@@ -326,7 +350,8 @@ class Mapper:
                                 if cfg.postprocess.enabled:
                                     pi0k, c0k = improve_layout(
                                         graph, self.spec.dist, s0,
-                                        cfg.postprocess, rng=rng_k)
+                                        cfg.postprocess, rng=rng_k,
+                                        disabled_qubits=self.spec.disabled_qubits)
                                 else:
                                     pi0k, c0k = s0, float(
                                         graph.cost(s0, self.spec.dist))
@@ -345,11 +370,13 @@ class Mapper:
             try:
                 pi_h = heuristic_layout(graph, self.spec, self._rng)
                 pi_h, _ = improve_layout(graph, self.spec.dist, pi_h,
-                                         cfg.postprocess, rng=self._rng)
+                                         cfg.postprocess, rng=self._rng,
+                                         disabled_qubits=self.spec.disabled_qubits)
                 pool.append(pi_h)
             except Exception as e:  # pragma: no cover - defensive
                 warnings.append(f"heuristic-pool failed: {e}")
-            pool.append(np.arange(graph.n, dtype=np.int64) % self.spec.n)
+            usable = self.spec.usable_positions
+            pool.append(usable[np.arange(graph.n) % len(usable)])
             # SABRE's full result (computed by the caller in map_circuit, or
             # here when compute_layout is used standalone) enters the contest
             # as a candidate outcome — our system is never worse than the
@@ -372,6 +399,63 @@ class Mapper:
                                           if n_mapped == graph.n else None)
                 except Exception:
                     self._sabre_result = None
+
+            if self.o3_screening:
+                # O3 档路由试探筛选（opt-in）：候选池先经廉价 SABRE 预筛
+                # 排序（最优优先），再按序做噪声感知 O3 管线（O3 + 平台基）
+                # 试探；时间预算与单候选上限触发时即止，取已完成候选中的
+                # 最优者。无完成候选时回退下方常规 SABRE 评分路径。
+                self._o3_screen = None
+                try:
+                    from qtrail.pipeline.target_post import route_target_post
+                    from qtrail.pipeline.metrics import estimate_fidelity
+                    from qtrail.utils.qasm_io import PLATFORM_BASIS
+                    ranked = self._prerank_for_screening(pool, qc, graph)
+                    completed = []
+                    t0 = time.monotonic()
+                    deadline = t0 + self.o3_budget
+                    for pi in ranked:
+                        remain = deadline - time.monotonic()
+                        if remain <= 0:
+                            break
+                        layout = {i: int(pi[i]) for i in range(graph.n)}
+                        dl = time.monotonic() + min(self.o3_per_candidate,
+                                                    remain)
+
+                        def _cb(*args, _dl=dl, **kwargs):
+                            # qiskit 以关键字参数调用回调（签名随版本变），
+                            # 只依赖墙钟与默认参数实现的截止检查
+                            if time.monotonic() > _dl:
+                                raise TimeoutError("o3 screening deadline")
+
+                        try:
+                            routed = route_target_post(
+                                qc, self.spec, layout, seed=self.seed,
+                                optimization_level=3, basis=PLATFORM_BASIS,
+                                callback=_cb)
+                            entry = (0, routed.depth(),
+                                     estimate_fidelity(routed, self.spec.calib),
+                                     pi)
+                            completed.append((entry, routed))
+                        except Exception:
+                            continue
+                    trace = {"tried": len(ranked), "completed": len(completed),
+                             "elapsed_s": round(time.monotonic() - t0, 2)}
+                    if completed:
+                        best_pi, _ = self._select_candidate(
+                            [e for e, _ in completed])
+                        best_routed = next(r for (e, r) in completed
+                                           if np.array_equal(e[3], best_pi))
+                        self._o3_screen = {"pi": best_pi,
+                                           "routed": best_routed,
+                                           "trace": trace}
+                        method += "_o3screen"
+                        return best_pi, method, warnings
+                    warnings.append(
+                        f"o3 screening: no candidate completed ({trace})")
+                except Exception as e:  # pragma: no cover - defensive
+                    warnings.append(f"o3 screening failed: {e}")
+                # 回退：下方常规评分路径
 
             scored = []
             # SABRE-MS 思想：makespan 目标注入——多种子调度取 makespan 最优
@@ -434,6 +518,29 @@ class Mapper:
         return candidates[0], method, warnings
 
     # ------------------------------------------------------- 决胜规则
+    def _prerank_for_screening(self, pool, qc, graph):
+        """廉价 SABRE 预筛排序（最优优先）——O3 试探按此顺序进行，
+        红线触发时已完成的候选即为最被看好的那一批。"""
+        from qtrail.pipeline.metrics import estimate_fidelity
+        entries = []
+        for pi in pool:
+            layout = {i: int(pi[i]) for i in range(graph.n)}
+            try:
+                routed, swaps, _ = route_with_layout(
+                    qc, self.cm, layout, seed=self.seed, method="sabre")
+                entries.append(((swaps, routed.depth(),
+                                 estimate_fidelity(routed, self.spec.calib),
+                                 pi), pi))
+            except Exception:
+                continue
+        if self.selection_rule == "swap":
+            entries.sort(key=lambda t: (t[0][0], -t[0][2]))
+        elif self.selection_rule == "fidelity":
+            entries.sort(key=lambda t: -t[0][2])
+        else:
+            entries.sort(key=lambda t: t[0][1])
+        return [pi for _, pi in entries]
+
     def _select_candidate(self, scored):
         """按 self.selection_rule 从候选 (swaps, depth, fidelity, pi) 中选优。
 
@@ -529,6 +636,7 @@ class Mapper:
         self._sabre_result = None
         self._sabre_o3_result = None
         self._tket_result = None
+        self._o3_screen = None
         if route:
             try:
                 from qtrail.pipeline.baselines import sabre_swap_count
@@ -602,6 +710,12 @@ class Mapper:
                     timeout_guard=self.cqlib_timeout)
                 final_layout = {k: int(final_map.get(k, layout[k]))
                                 for k in layout}
+            elif self.o3_screening and self._o3_screen is not None:
+                # O3 筛选模式交付：候选评分阶段选出的 O3 管线产物即为交付
+                # 线路（平台基，无显式 swap，最终布局即初始布局）
+                routed = self._o3_screen["routed"]
+                swap_count = 0
+                final_layout = {k: v for k, v in layout.items()}
             elif self.routing_method == "sabre" and self.target_post:
                 # Target 后处理管线（opt-in）：RL 布局 + qiskit O1 预设
                 # （噪声感知 Target）——路由后重标记/酉综合吸收置换
@@ -648,7 +762,9 @@ class Mapper:
                              swap_count=swap_count, routed_qc=final_qc,
                              metrics=metrics, method=method, warnings=warnings,
                              static_cost=static_cost,
-                             baseline_swaps=baseline_swaps)
+                             baseline_swaps=baseline_swaps,
+                             screening=(self._o3_screen["trace"]
+                                        if self._o3_screen else None))
 
     def _adopt_external(self, qc, graph, final_qc, swap_count, final_layout,
                         metrics, method, warnings, optimization_level):

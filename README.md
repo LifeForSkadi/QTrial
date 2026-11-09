@@ -4,7 +4,7 @@
 
 一句话介绍：给你一条量子线路（OpenQASM 2.0 格式）和一台超导芯片的拓扑 + 校准数据，QTrial 会告诉你每个逻辑比特该放在哪个物理比特上（布局）、中间该插多少个 SWAP（路由），输出一条能直接上真机的线路。布局部分用了一个小型的 GAT + 指针网络，靠 REINFORCE 稀疏奖励训练；路由和后处理是我们自己写的 SABRE 实现 + 置换重写，**整个交付管线不依赖 qiskit**。
 
-目标硬件是[天衍量子计算云平台](https://tianyan.ustc.edu.cn)的「天衍-287」——祖冲之三号同款芯片，105 个比特，15×7 网格。项目参加了 2026 年"揭榜挂帅"擂台赛的"量子+AI 双向赋能"榜题（AI 赋能量子计算 → 量子编译与线路优化方向）。
+目标硬件是[天衍量子计算云平台](https://tianyan.ustc.edu.cn)的「天衍-287」——祖冲之三号同款芯片，105 个比特、182 耦合器。**评测口径**（全部实验数字）用的是 15×7 完整矩形网格 + 合成校准；真机实测拓扑是弯曲排布（竖边+周期对角边）、当前可用 168 耦合器 + 4 个禁用比特，两者差异见技术报告 §1.2/§8.6（`scripts/d2_topology_compare.py` 可复现对照）。项目参加了 2026 年"揭榜挂帅"擂台赛的"量子+AI 双向赋能"榜题（AI 赋能量子计算 → 量子编译与线路优化方向）。
 
 想先看原理的，读 [docs/technical_report.md](docs/technical_report.md)（学术风格，含全部公式推导）；想看比赛版材料，读 [docs/competition_report.md](docs/competition_report.md)。本 README 负责把你从零带到能跑起来。
 
@@ -243,7 +243,7 @@ python scripts/run_training.py --dev cuda
 python -m pytest tests/ -q
 ```
 
-全绿是 96 个测试。最值钱的两类：态矢量等价（路由/后处理保不保语义）和 A/B 门禁（优化前后结果是否逐位一致）。改 `qtrail/pure/` 下任何东西之后，跑一遍 `tests/test_pure.py` 是最低要求。
+全绿是 109 个测试（本地 `.tianyan_key` 存在时 `test_platform_verifier_needs_key` 会因环境假设失败，属预期）。最值钱的两类：态矢量等价（路由/后处理保不保语义）和 A/B 门禁（优化前后结果是否逐位一致）。改 `qtrail/pure/` 下任何东西之后，跑一遍 `tests/test_pure.py` 是最低要求。
 
 ---
 

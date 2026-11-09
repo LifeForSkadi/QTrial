@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import numpy as np
 
@@ -64,6 +65,17 @@ def download_tianyan287_spec(machine: str = "tianyan-287",
         from cqlib import TianYanPlatform  # guarded import
         token = token or os.environ.get("TIANYAN_LOGIN_KEY", "") or \
             os.environ.get("CQLIB_LOGIN_KEY", "")
+        if not token:
+            # 项目根 .tianyan_key（gitignored）兜底
+            for cand in (Path(".tianyan_key"),
+                         Path(__file__).resolve().parent.parent.parent
+                         / ".tianyan_key"):
+                try:
+                    token = cand.read_text(encoding="utf-8").strip()
+                    if token:
+                        break
+                except OSError:
+                    continue
         if not token:
             log.warning("no Tianyan login key; falling back to synthetic device spec")
             return None

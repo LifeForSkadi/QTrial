@@ -59,6 +59,13 @@ def load_benchmark_circuits(bench: str, limit: int | None) -> list:
             n_out += 1
             if limit and n_out >= limit:
                 break
+    elif bench == "scaling":
+        # 规模-难度网格测试集（data/scaling/qasm，6×3×5=90 条）
+        from qtrail.utils.qasm_io import load_qasm2
+        for p in sorted(Path("data/scaling/qasm").glob("*.qasm")):
+            if limit and len(out) >= limit:
+                break
+            out.append((f"scaling/{p.stem}", load_qasm2(p)))
     elif bench == "custom":
         raise ValueError("custom benchmark needs explicit file list; use --files")
     else:

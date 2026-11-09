@@ -8,6 +8,8 @@
 5. CZ 基分解：cx → H-CZ-H（H = u3(pi/2,0,pi)）；swap → 3×cx 展开
 
 正确性：全部变换为保语义等价变换，由态矢量等价测试保证。
+硬件可执行性：adj 非 None 时推挤受连通性约束（重写后的 2Q 端点必须
+相邻，2026-11-09 修复——此前推挤可产生非相邻 2Q 门）。
 """
 from __future__ import annotations
 
@@ -38,7 +40,8 @@ def _u3_to_rzsx(th: float, ph: float, la: float) -> list[tuple]:
             ("rz", (float(ph + 3 * math.pi),))]
 
 
-def _swap_past(swap_qs: tuple, gate: Inst) -> Inst | None:
+def _swap_past(swap_qs: tuple, gate: Inst,
+               adj: "np.ndarray | None" = None) -> Inst | None:
     """swap 能否穿过 gate 移到其后：返回重写后的 gate（None = 不能穿）。
 
     规则（全部为 SWAP 共轭等价变换，语义保持）：
@@ -46,6 +49,11 @@ def _swap_past(swap_qs: tuple, gate: Inst) -> Inst | None:
       SWAP(a,b); CX(a,b) → CX(b,a); SWAP(a,b)   （双边触碰：控制/靶翻转）
       SWAP(a,b); R(q)     → R(q');   SWAP(a,b)  （单比特门：重标记）
       不相交门直接对易。
+
+    硬件连通性约束（2026-11-09 修复，v6 方案同步至 main）：adj 非 None 时，
+    单边触碰重标记后的 2Q 门端点对必须仍在耦合图上（adj 相邻），否则阻塞
+    ——保证后处理产物硬件可执行（此前推挤可产生非相邻 cx/cz/swap，
+    态矢量等价测试不查连通性，587 基准输出含大量非法 2Q 门）。
     """
     a, b = swap_qs
     qs = gate.qubits
@@ -56,15 +64,19 @@ def _swap_past(swap_qs: tuple, gate: Inst) -> Inst | None:
             return gate
         if a in qs and b in qs:
             return Inst("cx", (qs[1], qs[0]), gate.params)
-        return Inst("cx", tuple(b if q == a else (a if q == b else q)
-                                 for q in qs), gate.params)
+        new_qs = tuple(b if q == a else (a if q == b else q) for q in qs)
+        if adj is not None and not adj[new_qs[0], new_qs[1]]:
+            return None
+        return Inst("cx", new_qs, gate.params)
     if gate.nq == 2:  # cz 等对称门：单边触碰重标记；双边触碰不变
         if a not in qs and b not in qs:
             return gate
         if a in qs and b in qs:
             return gate
-        return Inst(gate.name, tuple(b if q == a else (a if q == b else q)
-                                     for q in qs), gate.params)
+        new_qs = tuple(b if q == a else (a if q == b else q) for q in qs)
+        if adj is not None and not adj[new_qs[0], new_qs[1]]:
+            return None
+        return Inst(gate.name, new_qs, gate.params)
     if gate.nq == 1:
         q = qs[0]
         if q == a:
@@ -75,15 +87,17 @@ def _swap_past(swap_qs: tuple, gate: Inst) -> Inst | None:
     return None
 
 
-def push_swaps(circ: Circuit, max_rounds: int = 200) -> Circuit:
+def push_swaps(circ: Circuit, adj: "np.ndarray | None" = None,
+               max_rounds: int = 200) -> Circuit:
     """swap 向末端推挤（含穿过触碰门的重写）+ swap;swap 消解。
 
     单向推挤（只向后）避免振荡；到不动点收敛。
+    adj 非 None 时执行硬件连通性感知推挤（重写后的 2Q 端点必须相邻）。
     Numba 可用时走编译内核（post_numba，逐位等价），否则纯 Python。
     """
     from qtrail.pure.post_numba import has_numba, numba_push_swaps
     if has_numba() and circ.ops:
-        circ.ops = numba_push_swaps(circ, max_rounds)
+        circ.ops = numba_push_swaps(circ, adj, max_rounds)
         circ._deps = None
         return circ
     changed = True
@@ -100,7 +114,7 @@ def push_swaps(circ: Circuit, max_rounds: int = 200) -> Circuit:
                     del ops[i:i + 2]           # swap;swap 抵消
                     changed = True
                     continue
-                new_b = _swap_past(a.qubits, b)
+                new_b = _swap_past(a.qubits, b, adj)
                 if new_b is not None:
                     ops[i] = new_b            # 门重写后放回
                     ops[i + 1] = a            # swap 后移
@@ -178,13 +192,18 @@ def cancel_cx(circ: Circuit) -> int:
 
 
 def post_route(circ: Circuit, final_layout: dict,
+               adj: "np.ndarray | None" = None,
                do_cancel: bool = True) -> tuple[Circuit, int]:
-    """完整后处理：推挤 → 消解 → 吸收。返回 (circuit, 被消除的 swap 数)。"""
+    """完整后处理：推挤 → 消解 → 吸收。返回 (circuit, 被消除的 swap 数)。
+
+    adj 非 None 时执行硬件连通性感知推挤（2026-11-09 修复：
+    保证产物全部 2Q 门落在耦合图上）。
+    """
     swaps_before = circ.count("swap")
-    push_swaps(circ)
+    push_swaps(circ, adj)
     if do_cancel:
         cancel_cx(circ)
-        push_swaps(circ)          # 消解后再次推挤
+        push_swaps(circ, adj)     # 消解后再次推挤
     absorbed = absorb_trailing(circ, final_layout)
     return circ, swaps_before - circ.count("swap")
 

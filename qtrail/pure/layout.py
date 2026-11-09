@@ -11,7 +11,7 @@ def heuristic_layout(graph: ProgramGraph, spec: DeviceSpec,
                      rng: np.random.Generator | None = None) -> np.ndarray:
     """Spectral heuristic: Fiedler-vector order of logical qubits mapped onto
     a device Hamiltonian path (grid snake). Never fails, works without a
-    policy."""
+    policy. 路径仅使用非禁用物理比特（2026-11-09 缺口 1 修复）。"""
     n = graph.n
     lap = np.diag(graph.adj.sum(axis=1)) - graph.adj
     evals, evecs = np.linalg.eigh(lap)
@@ -27,8 +27,12 @@ def heuristic_layout(graph: ProgramGraph, spec: DeviceSpec,
 
 
 def _device_snake(spec: DeviceSpec) -> list[int]:
-    """设备哈密顿路径：完整网格用行向蛇形；其余拓扑贪心最近邻 + BFS 逃逸。"""
+    """设备哈密顿路径：完整网格用行向蛇形；其余拓扑贪心最近邻 + BFS 逃逸。
+    禁用比特（spec.disabled_qubits）被排除在路径之外。"""
     import networkx as nx
+
+    disabled = set(spec.disabled_qubits)
+    usable = [q for q in range(spec.n) if q not in disabled]
 
     coords = spec.coords
     if np.allclose(coords, coords.astype(np.int64)):
@@ -37,25 +41,25 @@ def _device_snake(spec: DeviceSpec) -> list[int]:
         if len(rows) * ncols == spec.n:
             path = []
             for ri, r in enumerate(rows):
-                row_q = sorted([i for i in range(spec.n)
+                row_q = sorted([i for i in usable
                                 if int(coords[i][0]) == r],
                                key=lambda i: int(coords[i][1]))
                 path += row_q if ri % 2 == 0 else row_q[::-1]
             return path
 
     g = nx.Graph()
-    g.add_nodes_from(range(spec.n))
-    g.add_edges_from([(i, j) for i in range(spec.n)
-                      for j in range(i + 1, spec.n) if spec.adj[i, j]])
-    center = int(np.argmin(np.abs(spec.coords - spec.coords.mean(axis=0))
-                           .sum(axis=1)))
+    g.add_nodes_from(usable)
+    g.add_edges_from([(i, j) for i in usable for j in range(i + 1, spec.n)
+                      if j in usable and spec.adj[i, j]])
+    center = int(min(usable, key=lambda i: float(
+        np.abs(spec.coords[i] - spec.coords[usable].mean(axis=0)).sum())))
     path = [center]
     visited = {center}
-    while len(path) < spec.n:
-        nbrs = [j for j in range(spec.n) if spec.adj[path[-1], j]
+    while len(path) < len(usable):
+        nbrs = [j for j in usable if spec.adj[path[-1], j]
                 and j not in visited]
         if not nbrs:
-            unvisited = [v for v in range(spec.n) if v not in visited]
+            unvisited = [v for v in usable if v not in visited]
             if not unvisited:
                 break
             target = min(unvisited, key=lambda v: spec.dist[path[-1], v])

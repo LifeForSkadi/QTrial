@@ -1,11 +1,15 @@
-"""布局贡献对比：本方案布局 + qiskit SABRE 路由 vs pytket / Qiskit O1 / O3。
+"""布局贡献对比：本方案布局 + qiskit SABRE 路由 vs pytket / 盲目与噪声感知 O1/O3。
 
-对指定测试集逐线路在**同一进程**内跑四方法（MQTBench 随机参数线路
+对指定测试集逐线路在**同一进程**内跑六方法（MQTBench 随机参数线路
 每次加载不同，必须单进程对照）：
   1. 本方案 = RL 布局（指定权重）+ qiskit SABRE 路由（支撑版 Mapper）
-  2. Qiskit O1 / O3 = SABRE 编译管线（同指标口径）
-  3. pytket = DefaultMappingPass 默认映射管线（隐式置换物化 + 平台基
+  2. 盲目 O1 / O3 = SABRE 编译管线（同指标口径）
+  3. 噪声感知 O1 / O3 = 校准 Target 注入噪声模型的 qiskit 编译管线
+  4. pytket = DefaultMappingPass 默认映射管线（隐式置换物化 + 平台基
      分解，与 final_report_bench 同口径）
+
+逐条落盘 + 断点续跑：每条线路六方法全部完成后立即写盘；重跑时自动
+跳过已含 aw-o3 字段的线路。
 
 用法：
   python scripts/bench_layout_contribution.py --bench benchpress --limit 30
@@ -26,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from qtrail.config import Config, load_device_config
 from qtrail.devices import build_tianyan287_spec
 from qtrail.models import QAPolicy
+from qtrail.pipeline.baselines import aware_transpile, build_target
 from qtrail.pipeline.external import tket_compile
 from qtrail.pipeline.mapper import Mapper as QiskitMapper
 from qtrail.pipeline.metrics import compute_metrics
@@ -54,7 +59,25 @@ def main():
 
     circuits = load_benchmark_circuits(
         args.bench, args.limit if args.limit else None)
-    print(f"bench={args.bench} circuits={len(circuits)}")
+    print(f"bench={args.bench} circuits={len(circuits)}", flush=True)
+
+    # 断点续跑：已含 aw-o3 字段的线路直接复用
+    out = (Path("tables/compare_models")
+           / f"layout_contribution_{args.bench}_rows.jsonl")
+    done = {}
+    if out.exists():
+        for line in out.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                done[r["circuit"]] = r
+
+    def aw_done(r):
+        return "aw-o3_fidelity" in r or "aw-o3_error" in r
+
+    def write_rows(path, rs):
+        with open(path, "w", encoding="utf-8") as f:
+            for row in rs:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     # 本方案（RL 布局 + qiskit SABRE 路由）+ qiskit 基线
     policy, ckpt = QAPolicy.load_checkpoint(args.checkpoint, device_n=spec.n,
@@ -66,12 +89,21 @@ def main():
     cfg.graph = policy.graph_cfg
     mapper = QiskitMapper(spec, policy=policy, cfg=cfg, dev=args.dev,
                           seed=args.seed)
-    rows = evaluate_benchmark(circuits, mapper,
-                              baselines=("qiskit-o1", "qiskit-o3"))
+    target = build_target(spec)
 
-    # tket 基线（同进程）
-    for r, (name, qc) in zip(rows, circuits):
+    rows = []
+    for name, qc in circuits:
+        if name in done and aw_done(done[name]):
+            rows.append(done[name])
+            print(f"  [skip] {name}", flush=True)
+            write_rows(out, rows)
+            continue
+        r = evaluate_benchmark([(name, qc)], mapper,
+                               baselines=("qiskit-o1", "qiskit-o3"))[0]
+
         qc_clean, _ = strip_measurements(qc)
+
+        # tket 基线（同进程）
         t0 = time.time()
         try:
             expanded, sc = tket_compile(qc_clean, cm_edges, spec.n)
@@ -86,18 +118,35 @@ def main():
             r["tket_wall"] = round(time.time() - t0, 2)
         except Exception as e:
             r["tket_error"] = f"{type(e).__name__}: {str(e)[:60]}"
+
+        # 噪声感知 O1/O3 基线（同进程，校准 Target 注入噪声模型，
+        # 口径同 final_report_bench 的 aw_o1/aw_o3）
+        for opt, pref in ((1, "aw-o1"), (3, "aw-o3")):
+            t0 = time.time()
+            try:
+                routed = aware_transpile(qc_clean, target,
+                                         optimization_level=opt, seed=42)
+                sc = routed.count_ops().get("swap", 0)
+                m = compute_metrics(routed, sc, calib)
+                r[f"{pref}_swaps"] = sc
+                r[f"{pref}_twoq"] = m["twoq_count"]
+                r[f"{pref}_depth"] = m["depth"]
+                r[f"{pref}_fidelity"] = m["est_fidelity"]
+                r[f"{pref}_mean_2q_err"] = m.get("mean_2q_err")
+                r[f"{pref}_wall"] = round(time.time() - t0, 2)
+            except Exception as e:
+                r[f"{pref}_error"] = f"{type(e).__name__}: {str(e)[:60]}"
+
+        rows.append(r)
+        write_rows(out, rows)
         fid = r.get("fidelity")
         print(f"  {name[:52]:52s} "
-              f"rl_fid={fid:.4f}" if isinstance(fid, float) else
-              f"  {name[:52]:52s} rl_error={r.get('error')}",
+              f"rl_fid={fid:.4f} aw_o1={r.get('aw-o1_fidelity')} "
+              f"aw_o3={r.get('aw-o3_fidelity')}" if isinstance(fid, float)
+              else f"  {name[:52]:52s} rl_error={r.get('error')}",
               flush=True)
 
-    out = (Path("tables/compare_models")
-           / f"layout_contribution_{args.bench}_rows.jsonl")
-    with open(out, "w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    print(f"saved -> {out}")
+    print(f"saved -> {out} ({len(rows)} 行)")
 
 
 if __name__ == "__main__":

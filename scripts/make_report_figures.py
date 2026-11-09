@@ -193,13 +193,6 @@ def load_cross_topo():
     return out
 
 
-def load_speed():
-    rows = [json.loads(l) for l in open("tables/speed_large_vs_o3.jsonl",
-                                        encoding="utf-8")]
-    return [(r["n"], r["qt_wall"], r["aw_o3_wall"]) for r in rows
-            if r.get("qt_wall") is not None]
-
-
 def load_training_curves():
     """训练日志 → [(标签, epochs, val_cost, wall_s)]；缺文件返回空。"""
     out = []
@@ -264,40 +257,6 @@ def fig1_training(curves, outdir):
     plt.close(fig)
 
 
-def fig2_laurel_efficiency(outdir):
-    fig, axes = plt.subplots(1, 2, figsize=(9, 3.8))
-    # 左：训练轮数
-    ax = axes[0]
-    r1 = ax.bar([0, 1], [400, 89], 0.55,
-                color=[COLORS["感知O3"], COLORS["QTrial"]], zorder=3)
-    ax.set_xticks([0, 1])
-    ax.set_xticklabels(["原残差配置", "LAUREL 残差（本方案）"], fontsize=10)
-    for r in r1:
-        ax.annotate(f"{r.get_height():.0f} 轮",
-                    (r.get_x() + r.get_width() / 2, r.get_height()),
-                    xytext=(0, 4), textcoords="offset points",
-                    ha="center", va="bottom", fontsize=10, color=INK2)
-    style_ax(ax, "", "达到相近效果所需训练轮数")
-    ax.set_ylim(0, 470)
-    # 右：保真度均值
-    ax = axes[1]
-    r2 = ax.bar([0, 1], [0.4091, 0.4216], 0.55,
-                color=[COLORS["感知O3"], COLORS["QTrial"]], zorder=3)
-    ax.set_xticks([0, 1])
-    ax.set_xticklabels(["原残差配置", "LAUREL 残差（本方案）"], fontsize=10)
-    value_labels(ax, r2, fmt="{:.4f}")
-    ax.annotate("+3.1%（21/30 条线路更优）", xy=(1, 0.4216),
-                xytext=(0.55, 0.428), fontsize=9, color=INK2)
-    style_ax(ax, "", "QUEKO BIGD 30 条保真度均值")
-    ax.set_ylim(0, 0.45)
-    fig.suptitle("图 2  LAUREL 可学习残差：训练效率约 4.5 倍，效果略优",
-                 fontsize=13, y=1.03)
-    fig.tight_layout()
-    fig.savefig(outdir / "图2_LAUREL收敛效率.png", dpi=200,
-                bbox_inches="tight", facecolor=SURFACE)
-    plt.close(fig)
-
-
 def fig3_stratified_fidelity(data, outdir):
     fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
     for ax, stratum in zip(axes, ["≤10 比特", "11-50 比特", "51-105 比特"]):
@@ -314,15 +273,18 @@ def fig3_stratified_fidelity(data, outdir):
             rects.append(r[0])
         ax.set_xticks([])
         ax.set_xticklabels([])
-        # 选择性标值：QTrial + 该层最优者（relief 手段，避免全柱数字拥挤）
-        best = series[int(np.argmax(vals))]
+        # 全柱标值：统一偏移、标签直接置顶于各柱（柱间距足够容纳
+        # 标签宽度，不重叠）；白底框防与网格混淆
         for i, s in enumerate(series):
-            if s in ("QTrial", best):
-                r = rects[i]
-                ax.annotate(f"{vals[i]:.3f}",
-                            (r.get_x() + r.get_width() / 2, r.get_height()),
-                            xytext=(0, 4), textcoords="offset points",
-                            ha="center", va="bottom", fontsize=9, color=INK)
+            r = rects[i]
+            ax.annotate(f"{vals[i]:.4f}",
+                        (r.get_x() + r.get_width() / 2, r.get_height()),
+                        xytext=(0, 4), textcoords="offset points",
+                        ha="center", va="bottom", fontsize=8, color=INK,
+                        zorder=5,
+                        bbox=dict(boxstyle="round,pad=0.12",
+                                  facecolor=SURFACE, edgecolor="none"))
+        ax.set_ylim(0, max(vals) * 1.28)
         style_ax(ax, "", "估计保真度（均值）" if stratum == "≤10 比特" else "")
         ax.set_title(stratum, fontsize=11, color=INK)
         ax.legend(frameon=False, fontsize=8, loc="upper right",
@@ -359,18 +321,18 @@ def fig4_stratified_depth(data, outdir):
             ax.bar([xs[i]], [heights[i]], w, bottom=bottoms[i],
                    color=COLORS[s], label=METHOD_LABELS.get(s, s), zorder=3)
         ax.set_xticks([])
-        # 选择性标值：QTrial + 该层最浅者（深度越低越好）；底色框防止
-        # 标签被邻近高柱吞掉
-        best = series[int(np.argmin(vals))]
+        # 全柱标值：统一偏移、标签直接置顶于各柱；白底框防止被邻近
+        # 高柱吞掉
         for i, s in enumerate(series):
-            if s in ("QTrial", best):
-                ax.annotate(f"{vals[i]:.0f}",
-                            (xs[i], vals[i]),
-                            xytext=(0, 5), textcoords="offset points",
-                            ha="center", va="bottom", fontsize=8.5,
-                            color=INK, zorder=5,
-                            bbox=dict(boxstyle="round,pad=0.18",
-                                      facecolor=SURFACE, edgecolor="none"))
+            ax.annotate(f"{vals[i]:.0f}",
+                        (xs[i], vals[i]),
+                        xytext=(0, 5), textcoords="offset points",
+                        ha="center", va="bottom", fontsize=8,
+                        color=INK, zorder=5,
+                        bbox=dict(boxstyle="round,pad=0.15",
+                                  facecolor=SURFACE, edgecolor="none"))
+        if not logy:
+            ax.set_ylim(0, max(vals) * 1.25)
         style_ax(ax, "", "线路深度（截尾均值）" if stratum == "≤10 比特" else "")
         ax.set_title(f"{stratum}" + ("（对数刻度）" if logy else ""),
                      fontsize=11, color=INK)
@@ -380,39 +342,6 @@ def fig4_stratified_depth(data, outdir):
                  fontsize=13, y=1.03)
     fig.tight_layout()
     fig.savefig(outdir / "图4_分层深度对比.png", dpi=200,
-                bbox_inches="tight", facecolor=SURFACE)
-    plt.close(fig)
-
-
-def fig5_speed(rows, outdir):
-    fig, ax = plt.subplots(figsize=(8.5, 4.2))
-    ns = [r[0] for r in rows]
-    qt = [r[1] for r in rows]
-    o3 = [r[2] for r in rows]
-    ax.plot(ns, qt, marker="o", markersize=5, linewidth=1.8,
-            color=COLORS["QTrial"], label="QTrial（本方案）", zorder=3)
-    ax.plot(ns, o3, marker="s", markersize=5, linewidth=1.8,
-            color=COLORS["感知O3"], label="噪声感知 O3", zorder=3)
-    ax.set_yscale("log")
-    style_ax(ax, "线路比特数", "运行时间（秒，对数刻度）")
-    # 标注极值
-    i_max = int(np.argmax(qt))
-    ax.annotate(f"{qt[i_max]:.1f} s", (ns[i_max], qt[i_max]),
-                xytext=(-8, 8), textcoords="offset points", fontsize=9,
-                color=INK2)
-    i_o3 = int(np.argmax(o3))
-    ax.annotate(f"{o3[i_o3]:.2f} s", (ns[i_o3], o3[i_o3]),
-                xytext=(4, -14), textcoords="offset points", fontsize=9,
-                color=INK2)
-    ratio = np.mean([q / max(o, 1e-9) for q, o in zip(qt, o3)])
-    ax.annotate(f"18 条大线路平均耗时比 ≈ {ratio:.1f} 倍",
-                xy=(0.03, 0.93), xycoords="axes fraction", fontsize=10,
-                color=INK2)
-    ax.legend(frameon=False, loc="lower right", fontsize=10)
-    fig.suptitle("图 5  大比特数线路运行时间对比（51-105 比特）", fontsize=13,
-                 y=1.02)
-    fig.tight_layout()
-    fig.savefig(outdir / "图5_运行时间对比.png", dpi=200,
                 bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
 
@@ -455,10 +384,21 @@ def fig7_cross_topo(ct, outdir):
     w = 0.8 / len(series)
     for i, s in enumerate(series):
         vs = [v if v is not None else 0 for v in vals[i]]
-        r = ax.bar(xs + (i - (len(series) - 1) / 2) * w, vs, w,
-                   color=COLORS[s], label=METHOD_LABELS[s], zorder=3)
-        if s == "QTrial":
-            value_labels(ax, r, fmt="{:.4f}", fontsize=8)
+        ax.bar(xs + (i - (len(series) - 1) / 2) * w, vs, w,
+               color=COLORS[s], label=METHOD_LABELS[s], zorder=3)
+    # 全柱标值：统一偏移、标签直接置顶于各柱
+    for j in range(len(groups)):
+        for i in range(len(series)):
+            v = vals[i][j]
+            if v is None:
+                continue
+            ax.annotate(f"{v:.4f}",
+                        (xs[j] + (i - (len(series) - 1) / 2) * w, v),
+                        xytext=(0, 3), textcoords="offset points",
+                        ha="center", va="bottom", fontsize=8, color=INK,
+                        zorder=5,
+                        bbox=dict(boxstyle="round,pad=0.12",
+                                  facecolor=SURFACE, edgecolor="none"))
     ax.set_xticks(xs)
     ax.set_xticklabels(groups, fontsize=10)
     style_ax(ax, "", "2Q 误差加权均值（越低越好）")
@@ -537,20 +477,26 @@ def fig9_laurel_detail(rows, outdir):
     plt.close(fig)
 
 
-def fig10_layout_contribution(outdir):
+def fig10_layout_contribution(outdir, fig_no="10", out_name=None):
     """图 10：布局贡献对比——本方案布局 + qiskit SABRE 路由 vs
-    pytket / qiskit O1 / O3，在三个基准上（Benchpress 为 Qiskit 官方
-    测评自己的测试集），3×3 小面板 = 基准 × 指标，截尾均值口径
-    （去两端 10% 极值；个别大型线路会把均值拉爆）。"""
-    benches = [("benchpress", "Benchpress\n（Qiskit 官方，30 条）"),
-               ("mqtbench_n15", "MQTBench\n（15 比特，43 条）"),
-               ("queko_BIGD", "QUEKO BIGD\n（30 条）")]
-    entities = [("本方案布局\n+SABRE 路由", "rl", COLORS["QTrial"]),
-                ("pytket", "tket", COLORS["pytket"]),
-                ("Qiskit O1", "qiskit-o1", COLORS["感知O1"]),
-                ("Qiskit O3", "qiskit-o3", COLORS["感知O3"])]
+    pytket / 盲目 O1、O3 / 噪声感知 O1、O3，另给出本方案布局注入
+    qiskit O3 管线的组合；在三个基准上（Benchpress 为 Qiskit 官方测评
+    自己的测试集），3×2 小面板 = 基准 × 指标（保真度/深度），截尾均值
+    口径（去两端 10% 极值）。SWAP 数因各方法在该测试集上差异极小
+    （同路由器口径）不作展示。"""
+    INJ = "#7ba8e0"  # QTrial 蓝的浅调：本方案布局 + O3 管线组合
+    benches = [("benchpress", "Benchpress\n（Qiskit 官方）"),
+               ("mqtbench_n15", "MQTBench n15"),
+               ("queko_BIGD", "QUEKO BIGD")]
+    entities = [("本方案布局\n+O1 路由", "rl", COLORS["QTrial"]),
+                ("本方案布局\n+O3 路由", "inj", INJ),
+                ("噪声感知 O3", "aw-o3", COLORS["感知O3"]),
+                ("噪声感知 O1", "aw-o1", COLORS["感知O1"]),
+                ("盲目 O3", "qiskit-o3", COLORS["盲目O3"]),
+                ("盲目 O1", "qiskit-o1", COLORS["盲目O1"]),
+                ("pytket", "tket", COLORS["pytket"])]
 
-    fig, axes = plt.subplots(3, 3, figsize=(12.5, 10.5))
+    fig, axes = plt.subplots(3, 2, figsize=(10.5, 10.5))
     for row_i, (bench, blabel) in enumerate(benches):
         src = Path(f"tables/compare_models/"
                    f"layout_contribution_{bench}_rows.jsonl")
@@ -559,9 +505,14 @@ def fig10_layout_contribution(outdir):
                   f"scripts/bench_layout_contribution.py --bench {bench}）")
             continue
         rows = [json.loads(l) for l in open(src, encoding="utf-8")]
+        blabel = f"{blabel}\n（{len(rows)} 条）"
+        inj_src = Path(f"tables/compare_models/"
+                       f"layout_inject_{bench}_rows.jsonl")
+        inj_rows = ([json.loads(l) for l in open(inj_src, encoding="utf-8")]
+                    if inj_src.exists() else [])
 
-        def mean_of(field):
-            vals = sorted(r[field] for r in rows
+        def mean_of(field, rs):
+            vals = sorted(r[field] for r in rs
                           if isinstance(r.get(field), (int, float)))
             if not vals:
                 return None
@@ -572,21 +523,36 @@ def fig10_layout_contribution(outdir):
 
         for col_i, (mname, title, fmt) in enumerate(
                 (("fidelity", "估计保真度（截尾均值）", "{:.4f}"),
-                 ("depth", "线路深度（截尾均值）", "{:.0f}"),
-                 ("swap", "SWAP 数（截尾均值）", "{:.0f}"))):
+                 ("depth", "线路深度（截尾均值）", "{:.0f}"))):
             ax = axes[row_i][col_i]
             vals = []
             for label, pref, color in entities:
                 field = mname if pref == "rl" else f"{pref}_{mname}"
-                vals.append((label, mean_of(field), color))
+                rs = inj_rows if pref == "inj" else rows
+                vals.append((label, mean_of(field, rs), color))
             xs = range(len(vals))
-            rects = ax.bar(xs, [v[1] if v[1] else 0 for v in vals], 0.6,
+            rects = ax.bar(xs, [v[1] if v[1] else 0 for v in vals], 0.58,
                            color=[v[2] for v in vals], zorder=3)
             ax.set_xticks(list(xs))
-            ax.set_xticklabels([v[0] for v in vals], fontsize=7.5)
+            ax.set_xticklabels([v[0] for v in vals], fontsize=7)
+            hi = max([v[1] for v in vals if v[1]] or [1])
+            ax.set_ylim(0, hi * 1.28)
             for r, (label, v, _) in zip(rects, vals):
-                if v:
-                    ax.annotate(fmt.format(v),
+                if not v:
+                    continue
+                txt = fmt.format(v)
+                if v < 0.12 * hi:
+                    # 极小值：标注置于柱顶右侧，避免遮挡 x 轴刻度标签
+                    ax.annotate(txt,
+                                (r.get_x() + r.get_width(), v),
+                                xytext=(5, 0), textcoords="offset points",
+                                ha="left", va="center", fontsize=7.5,
+                                color=INK, zorder=5,
+                                bbox=dict(boxstyle="round,pad=0.12",
+                                          facecolor=SURFACE,
+                                          edgecolor="none"))
+                else:
+                    ax.annotate(txt,
                                 (r.get_x() + r.get_width() / 2, v),
                                 xytext=(0, 3), textcoords="offset points",
                                 ha="center", va="bottom", fontsize=7.5,
@@ -594,16 +560,19 @@ def fig10_layout_contribution(outdir):
                                 bbox=dict(boxstyle="round,pad=0.12",
                                           facecolor=SURFACE,
                                           edgecolor="none"))
-            style_ax(ax, "", title if row_i == 0 else "")
-            hi = max([v[1] for v in vals if v[1]] or [1])
-            ax.set_ylim(0, hi * 1.28)
+            style_ax(ax, "", "")
+            if row_i == 0:
+                # 列标题置于顶行面板顶部（不再占用 ylabel——第一列的
+                # ylabel 是基准名，曾因此丢失列标题）
+                ax.set_title(title, fontsize=11, color=INK)
             if col_i == 0:
                 ax.set_ylabel(blabel, fontsize=9, rotation=0,
                               labelpad=46, va="center")
-    fig.suptitle("图 10  布局贡献对比：本方案布局 + qiskit SABRE 路由"
-                 " vs 成熟方案（三基准，截尾均值口径）", fontsize=13, y=0.995)
+    fig.suptitle(f"图 {fig_no}  布局贡献对比：本方案布局 + O1 路由 / O3 路由 vs "
+                 f"pytket 与盲目/噪声感知 O1、O3（三基准 × 保真度/深度，截尾均值口径）",
+                 fontsize=13, y=0.995)
     fig.tight_layout()
-    fig.savefig(outdir / "图10_布局贡献对比.png", dpi=200,
+    fig.savefig(outdir / (out_name or f"图{fig_no}_布局贡献对比.png"), dpi=200,
                 bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
 
@@ -666,19 +635,11 @@ def main():
     else:
         print("图1 跳过（无训练日志）")
 
-    fig2_laurel_efficiency(outdir)
-    print("图2 LAUREL 收敛效率: OK")
-
     data = load_final_report()
     fig3_stratified_fidelity(data, outdir)
     print("图3 分层保真度: OK")
     fig4_stratified_depth(data, outdir)
     print("图4 分层深度: OK")
-
-    speed = load_speed()
-    if speed:
-        fig5_speed(speed, outdir)
-        print("图5 运行时间: OK")
 
     fig6_defect_sweep(load_defect_sweep(), outdir)
     print("图6 缺陷敏感性扫描: OK")
@@ -696,6 +657,9 @@ def main():
 
     fig10_layout_contribution(outdir)
     print("图10 布局贡献对比: OK")
+    # thesis 版（内部标题与第 5 章编号一致：图5.6）
+    fig10_layout_contribution(outdir / "thesis", fig_no="5.6",
+                               out_name="图5.6_布局贡献对比.png")
 
     table1_training_settings(outdir)
     print("表1 训练设置: OK")

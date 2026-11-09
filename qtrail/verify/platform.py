@@ -16,8 +16,23 @@ from __future__ import annotations
 import math
 import os
 import warnings
+from pathlib import Path
 
 import numpy as np
+
+
+def _key_from_file() -> str:
+    """项目根 .tianyan_key（gitignored）兜底读取。"""
+    cands = [Path(".tianyan_key"),
+             Path(__file__).resolve().parent.parent.parent / ".tianyan_key"]
+    for cand in cands:
+        try:
+            text = cand.read_text(encoding="utf-8").strip()
+            if text:
+                return text
+        except OSError:
+            continue
+    return ""
 
 
 class TianyanVerifier:
@@ -27,7 +42,8 @@ class TianyanVerifier:
                  machine: str = "tianyan-287"):
         self.machine = machine
         self.login_key = login_key or os.environ.get("TIANYAN_LOGIN_KEY", "") \
-            or os.environ.get("CQLIB_LOGIN_KEY", "")
+            or os.environ.get("CQLIB_LOGIN_KEY", "") \
+            or _key_from_file()
         self._platform = None
 
     # -------------------------------------------------------------- status
