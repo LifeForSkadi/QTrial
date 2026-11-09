@@ -185,12 +185,13 @@ class PureMapper:
 
     # -------------------------------------------------- 管线级联合选择
     def _v5_pipeline(self, routed, final_layout, circ, noise_lambda,
-                     with_learned: bool = True, with_resynth: bool = True):
+                     with_learned: bool = True, with_resynth: bool = True,
+                     relabel_budget: float | None = 25.0):
         """v5 后处理栈（含非劣化开关）。返回 (routed, final_layout, final_qc)。
 
-        with_learned=False 跳过 L3、with_resynth=False 跳过 A2 块重合成
-        （候选评分用：策略解码与 torch 块拟合是耗时大头——hwb10 实测
-        44s/次——对候选排序影响微小；胜者交付时补跑全量）。
+        with_learned=False 跳过 L3、with_resynth=False 跳过 A2 块重合成、
+        relabel_budget=None 跳过全局重标记（候选评分用：耗时大头在
+        胜者交付时全量跑；预算单位秒）。
         """
         from qtrail.pure.post_v2 import (
             collect_resynthesize_2q_blocks, decompose_to_platform_v2,
@@ -198,6 +199,17 @@ class PureMapper:
         routed_v4 = routed.copy()
         fin_v4 = dict(final_layout)
         final_qc_v4 = decompose_to_platform(routed_v4)
+        if relabel_budget is not None:
+            # 全局重标记（对标 VF2PostLayout 的自主实现 + 噪声加权
+            # 部分嵌入扩展）：精确嵌入 → 0-SWAP 消除；部分嵌入 →
+            # 仅重标记（收益由非劣化守卫裁决）
+            from qtrail.pure.relabel_vf2 import global_relabel
+            res = global_relabel(routed, self.spec,
+                                 time_budget=relabel_budget)
+            if res is not None:
+                routed, mapping = res
+                for k, v in final_layout.items():
+                    final_layout[k] = int(mapping.get(int(v), int(v)))
         folded, fold_arr = fold_and_relink(routed, self.spec)
         if fold_arr is not None:
             routed = folded
@@ -244,7 +256,7 @@ class PureMapper:
             fin_pre = dict(final_layout)
             routed, final_layout, final_qc = self._v5_pipeline(
                 routed, final_layout, circ, noise_lambda, with_learned=False,
-                with_resynth=False)
+                with_resynth=False, relabel_budget=3.0)
             m = pure_metrics(final_qc, routed.count("swap"),
                              self.spec.calib,
                              predictor=self.fidelity_predictor)
