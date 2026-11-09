@@ -241,6 +241,24 @@ w_ext=0.5/n + **lookahead_w=0.5（双步前瞻）** + 无禁忌 + 种子随机�
 - **改进方向待用户选定**（docs/learning_plan.md）：① 自产 A* 最优
   标签+BC+前瞻奖励 RL（2-4 天，30-50% 概率超手写基线）② 学习式
   折叠决策（1 天，低风险）③ QCIS 门类合成学习（可选展示项）。
+- **全局重标记：语义修复后重估（2026-11-12 凌晨，git fe25f7c）**。
+  ⚠️ 此前 f92624e 版本的端到端数字（adder_8 0.0233、gf2^7 0.0549、
+  queko 0.8701"反超 inj"）**全部作废**——语义测试捕获两个真 bug：
+  ① 固定置换作用于含 swap 的时变线路不合法（须先 fold_only 坐标
+  折叠）② 嵌入映射未补全为全域双射导致输出身份冲突。
+  修复后的正确链：fold_only（恒正确）→ global_relabel（噪声加权
+  嵌入选优 + 全域双射补全 + 自验证）→ chain_long_gates（全部链化，
+  非劣化开关兜底）。57 项测试全绿（新增显式矩阵共轭语义测试：
+  3×3 设备 8 条随机线路 U_new = Π U_orig Π⁻¹ + fold 恒等式 +
+  链化合法性 + 禁用比特规避）。
+  真实生效面：合成矩形网格上仅低度交互图线路可嵌入（queko/gf2
+  原始图最大度 16/6 > 网格 4，数学上不可嵌入）；**真机拓扑口径
+  （182 边弯曲布局）价值更大**——queko 线路按其生成。
+- 真机可运行性：嵌入搜索目标节点排除禁用比特（已修）；链化后
+  全部门相邻由自验证断言；非劣化开关保证劣化回退 v4（永远合法）。
+- A* 精确路由求解器（optimal_route.py）：已实现但状态空间爆炸
+  （n=5 在 105 比特芯片上 10^10 布局）——搁置，需补丁限制或更强
+  启发式（学习标签资产，优先级低）。
 - **学习式路由评分器（decay 学习替代尝试）❌ 负面结论（2026-11-11）**：
   RouteScorer MLP（9 特征：距离分量/步龄/边误差/度/窗口使用次数，
   qtrail/pure/rl_score.py + 路由器 scorer 参数 + train_route_scorer.py
@@ -283,3 +301,58 @@ large 86/199（断点续跑，中断后重跑 scripts/final_report_bench_v6.py �
 **关键文件**（同前）：post_v2.py / lnn.py + kms_chain_table.json /
 synthesis.py；final_report_bench_v6.py / inj_v6_compare.py / make_ppt_v4.py；
 tables/final_report_v6/ / tables/compare_models/inj_v6_*.jsonl
+
+## -4. 当前状态（2026-11-12 深夜，第三次压缩恢复点）
+
+**命名约定（用户指定）**：实验批次全称 = final_report_v7（当前批次）/
+final_report_v6（老路由器对照）等；管线参数 = v4（冻结）/ v5（默认）/
+v6（v5 + A2 全量版，实测零增益）。
+
+**管线当前状态（全部已提交，git 最新 5e0f9f0）**：
+- 路由器：绝对评分 + 双步前瞻 0.5 + 恒权 + w_ext=0.5/n + 种子随机平局
+  + 10n 回卷逃逸（qiskit 语义）+ trials 线程并行（bench seeds=6）；
+  decay 对齐（0.001/5，默认关——单用混合效果，其 lookahead 层机制
+  未反推）；noise_w/noise_tie/tabu 均为实验参数关闭。
+- 后处理 v5：A1 fold_and_relink / A4 fold_only / A5 chain_long_gates /
+  A2 块重合成（阈值版+全量版）/ A2 rz穿cz / A3 cx通勤对消 /
+  B4 恒等移除 / B5 H吸收 / B6 cz对消 / B7 1Q跨门滑动 / B8 误差加权
+  1Q合成（ZXZXZ 候选）——B 系列实测 1Q -23~34%。
+- 全局重标记 relabel_vf2：fold_only 前置 + 精确嵌入（噪声加权选优）
+  + 部分嵌入 + 全域双射补全 + 自验证；**墙钟预算**（胜者 25s/候选
+  3s，用户 2026-11-12 决定从迭代计数改回）。
+- mapper：三候选选优（重标记/老折叠/裸路由，_select 决胜规则）+
+  联合选择（top-6 ≤50q，L3/重合成胜者补跑）+ 非劣化开关 +
+  重标记 100k 门防护。
+- 语义保证：45+ 测试全绿（显式矩阵共轭测试/折叠恒等式/链矩阵/
+  v4-v5 态矢量等价/硬件合法性/禁用比特）。
+- 多试验：trials 线程池并行（gf2^7 实测 6 种子墙钟≈单次、换数 259→247）。
+
+**实验数字（final_report_v7 批次，管线 v5）**：
+- small 129/129：fid 0.6429/0.6770/0.7890 = 0.84x 感知O3、0.90x
+  RL+感知O3；胜场 1/129、7/128。改进轨迹 0.79x→0.84x（B 系列）。
+- medium：三分片并行（beh11vn4a/bq7ysua1g/ber51ragj，79+/259@最后
+  检查，hwb 难线路在分片 0）——**注意：分片运行于墙钟回退之前的
+  代码（迭代计数预算）**，与当前口径微差，待定接受或重跑。
+- RL+感知O3：rl_o3_587_rows.jsonl 388 行完整（qiskit 侧不受影响）。
+- 感知O3：旧表。三方法对比脚本 three_way_compare.py（自动合并分片）。
+- B 组实验（inj_extract_rows.jsonl）：benchpress 14/28 打平、queko
+  2/30 输（RL 布局噪声权重牺牲路由性——可改进点②）。
+- VF2 净作用分析（vf2_effect_analysis.py）：三指标已算。
+- 差距构成实测：small 层 1Q 误差和占 67-98%（追到开源极限：全线路
+  通勤收集+门类误差率缺校准数据）；2Q 占 2-33%（同对块机制已完整，
+  v6 零增益；NCT 模板 qiskit O3 默认也不用——不是差距源）。
+- 历史版本对比（93 条 medium 同线路）：v7 0.0481 vs v6老路由器
+  0.0372（+29%）/ 旧口径 0.0357 / v5 0.0287 / v3 0.0258；
+  胜 v6 90/93。
+
+**关键文件**：qtrail/pure/{router,post_v2,relabel_vf2,mapper,post,
+synthesis,lnn,optimal_route(搁置),rl_score(验收失败保留)}.py；
+scripts/{final_report_bench_v7(--buckets/--seeds 6/--shard k/N),
+three_way_compare,bench_rl_o3_587,inj_extract_compare,
+vf2_effect_analysis,ablation_v5(8变体),train_route_scorer,
+make_ppt_v5(叙事已更新、p7 数字待填)}；qiskit rust 源码在 %TEMP%
+（sabre_heuristic/route/layer.rs、tqp.rs、euler1q.rs）。
+
+**下一步候选（压缩后继续）**：① 等 medium 完成出最终三方法表 +
+PPT 数字；② queko 类布局路由性修复（1 天，B 实验 28/30 可追）；
+③ 学习式路由 LARBE 式（2-4 天，30-50%）；④ 真机口径验证（287 维护）。
