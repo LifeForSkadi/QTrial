@@ -17,6 +17,7 @@ import json
 import re
 import statistics
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -76,6 +77,32 @@ def load_circuits():
     return buckets, skipped
 
 
+def run_with_timeout(fn, timeout):
+    """在守护线程里跑 fn，超时返回 (None, 'timeout')（残留线程随进程退出）。
+    timeout=None 时不限时。"""
+    if timeout is None:
+        try:
+            return fn(), None
+        except Exception as e:
+            raise
+    box = {}
+
+    def target():
+        try:
+            box["res"] = fn()
+        except Exception as e:  # 传给主线程抛
+            box["err"] = e
+
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        return None, "timeout"
+    if "err" in box:
+        raise box["err"]
+    return box.get("res"), None
+
+
 def trimmed(vals):
     vals = sorted(vals)
     if not vals:
@@ -90,11 +117,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--buckets", default="small,medium,large",
                     help="只跑指定层（并行分片用：如 --buckets large）")
-    ap.add_argument("--seeds", type=int, default=6,
-                    help="最终路由多种子数（routing_seeds，默认 3）")
+    ap.add_argument("--seeds", type=int, default=20,
+                    help="最终路由多种子数（routing_seeds，对齐 qiskit O3 "
+                         "trials=20；线程并行 8 worker，墙钟≈3 波）")
     ap.add_argument("--shard", default=None,
                     help="层内分片 k/N（并行用：线路按序均分到 N 片，"
                          "每片独立输出文件，汇总时合并）")
+    ap.add_argument("--timeout", type=float, default=None,
+                    help="每线墙钟超时（秒）。超时写 timeout 错误行并跳过"
+                         "（守护线程残留，进程退出时自动回收）")
     args = ap.parse_args()
     buckets_sel = [b for b in args.buckets.split(",") if b]
     shard_id = shard_n = None
@@ -148,12 +179,18 @@ def main():
                 mapper = PureMapper(spec, policy=policy, cfg=cfg, dev=dev,
                                     seed=42, selection_rule=RULE, use_post=True,
                                     pipeline="v5", routing_seeds=args.seeds)
-                res = mapper.map_circuit(parse_qasm(ptext), circuit_id=name)
-                row["qt_swaps"] = res["swap_count"]
-                row["qt_depth"] = res["metrics"]["depth"]
-                row["qt_twoq_depth"] = res["metrics"]["twoq_depth"]
-                row["qt_fidelity"] = res["metrics"]["est_fidelity"]
-                row["qt_wall"] = round(time.time() - t0, 2)
+                res, terr = run_with_timeout(
+                    lambda: mapper.map_circuit(parse_qasm(ptext),
+                                               circuit_id=name),
+                    args.timeout)
+                if terr is not None:
+                    row["qt_error"] = f"timeout_{args.timeout:.0f}s"
+                else:
+                    row["qt_swaps"] = res["swap_count"]
+                    row["qt_depth"] = res["metrics"]["depth"]
+                    row["qt_twoq_depth"] = res["metrics"]["twoq_depth"]
+                    row["qt_fidelity"] = res["metrics"]["est_fidelity"]
+                    row["qt_wall"] = round(time.time() - t0, 2)
             except Exception as e:
                 row["qt_error"] = f"{type(e).__name__}: {str(e)[:60]}"
             rows.append(row)

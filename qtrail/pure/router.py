@@ -42,13 +42,17 @@ import numpy as np
 from qtrail.pure.circuit import Circuit, Inst
 from qtrail.pure.swap_kernel import after_dist_matrix
 
+_DEBUG_LAYER = False
+
 
 def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
-                lam_ms: float = 0.0, w_ext: float | None = None,
+                lam_ms: float = 0.0, w_ext: float | None = 0.0,
                 decay_pen: float = 0.0, tabu_window: int = 0,
                 tabu_mult: float = 1000.0, tabu_decay: float = 0.0,
                 tabu_scope: str = "edge", tabu_count: bool = False,
-                lookahead_w: float = 0.5, noise_w: float = 0.0,
+                lookahead_w: float = 0.0, w_layer: float | None = None,
+                cand_scope: str = "front",
+                noise_w: float = 0.0,
                 noise_tie: float = 0.0,
                 decay_inc: float = 0.0, decay_reset: int = 5,
                 scorer=None, scorer_sample: bool = False,
@@ -66,7 +70,15 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
       tabu_count=True：窗口内使用次数 k → ×tabu_mult^k
     lookahead_w>0：前瞻启发式（SABRE 论文 Algorithm 3）：score =
       H(s) + lookahead_w·min_{s2≠s} H(s∘s2)（qiskit 2.5 已无前向模拟
-      lookahead——本实现差异化）。
+      lookahead——本实现差异化，rollout 前瞻）。
+    w_layer：qiskit lookahead 层权重（2026-11-13 对齐 rust 源码语义）：
+      第 1 层 = 把 front 层所有 2Q 门视为已满足后拓扑暴露的下一批 2Q
+      门集（deps ⊆ allowed∪frontier），score += w_layer·Σ_{门∈层1}
+      交换后距离和。None → 0.5/spec.n（qiskit O3 默认；实测该层权重
+      ~0.005 单独贡献 38% swap 减少）；0.0 显式关闭。与 rollout 前瞻
+      （lookahead_w）独立可叠加。
+    cand_scope：候选交换来源。"front" = 仅 front 层活跃比特的邻边
+      （qiskit 2.5 rust 语义）；"fext" = front∪ext 活跃比特（旧语义）。
     noise_w>0：噪声感知距离缩放（实验参数，默认关：破坏跳数优化）。
     noise_tie>0：噪声感知平局裁决（实验参数，默认关——实测无论容差
       1.0 还是精确同分均劣化换数：dtc_100 4488→7838，低误差边形成
@@ -86,6 +98,7 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                       tabu_window=tabu_window, tabu_mult=tabu_mult,
                       tabu_decay=tabu_decay, tabu_scope=tabu_scope,
                       tabu_count=tabu_count, lookahead_w=lookahead_w,
+                      w_layer=w_layer, cand_scope=cand_scope,
                       noise_w=noise_w, noise_tie=noise_tie, scorer=scorer,
                       scorer_sample=scorer_sample, scorer_temp=scorer_temp,
                       scorer_stats=scorer_stats, max_swaps=max_swaps,
@@ -149,15 +162,34 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     # 扩展集增量维护：仅当 deps[s]⊆allowed 由假变真（某依赖执行）或
     # s 进入 frontier 时更新，与逐次全量重算成员逐位一致。
     ext = set()
+    # lookahead 层（qiskit rust 语义）：SabreDAG 的依赖是【2Q 门之间】
+    # （1Q 门被穿过，不构成节点），故第 1 层 = {2Q 门 s : 所有 2Q 前驱
+    # ∈ allowed∪frontier, s∉frontier}。增量维护 cnt_af[s] =
+    # |2Q 前驱∩(allowed∪frontier)|——x 进入 allowed∪frontier 的时刻
+    # 即 x 进入 frontier（执行不改该并集成员），故 cnt 只在【2Q 门】
+    # 进入 frontier 时 +1。swap 不改变层结构（qiskit apply_swap 语义）。
+    l1 = set()
+    cnt_af = [0] * m
+    n2q_deps = [sum(1 for j in deps[i] if len(ops[j].qubits) == 2)
+                for i in range(m)]
     for i in frontier:
         for s in succ[i]:
             if s not in frontier and deps[s] <= allowed \
                     and len(ops[s].qubits) == 2:
                 ext.add(s)
+            if len(ops[i].qubits) == 2:
+                cnt_af[s] += 1
+    if w_layer != 0.0:
+        for s in range(m):
+            if (s not in frontier and s not in executed
+                    and len(ops[s].qubits) == 2
+                    and cnt_af[s] == n2q_deps[s]):
+                l1.add(s)
     out = Circuit(spec.n, name=circ.name + "_routed")
     swap_count = 0
     batch = []  # 自上次进展以来的交换批（逃逸回卷用）
     wext = w_ext if w_ext is not None else 0.5 / spec.n
+    wl = w_layer if w_layer is not None else 0.5 / spec.n
     # 禁忌表：物理边/比特上次被选为交换的步号（-1 = 从未）
     last_edge = np.full(spec.n * spec.n, -1, dtype=np.int64)
     last_qubit = np.full(spec.n, -1, dtype=np.int64)
@@ -183,6 +215,17 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         return q1, q2
 
     while frontier:
+        if _DEBUG_LAYER:
+            print(f"[dbg-loop] |frontier|={len(frontier)} |ext|={len(ext)} "
+                  f"|l1|={len(l1)} executed={len(executed)}", flush=True)
+            for fi in list(frontier):
+                if len(ops[fi].qubits) == 2:
+                    for s in succ[fi]:
+                        if len(ops[s].qubits) == 2 and s not in frontier \
+                                and s not in executed:
+                            print(f"  [dbg-succ] 门{s} deps={len(deps[s])} "
+                                  f"cnt={cnt_af[s]} 在L1?={s in l1}",
+                                  flush=True)
         exec_now = [i for i in frontier
                     if len(ops[i].qubits) == 1
                     or amat[pos[ops[i].qubits[0]], pos[ops[i].qubits[1]]]]
@@ -209,11 +252,20 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                         frontier.add(s)
                         allowed.add(s)
                         ext.discard(s)
+                        l1.discard(s)
                         # s 进入前沿 → 其后继的 deps⊆allowed 可能此刻才成立
                         for t in succ[s]:
                             if t not in frontier and deps[t] <= allowed \
                                     and len(ops[t].qubits) == 2:
                                 ext.add(t)
+                            # s 进入 allowed∪frontier → lookahead 层计数
+                            # （qiskit 语义：仅 2Q 门构成依赖链）
+                            if w_layer != 0.0 and len(ops[s].qubits) == 2:
+                                cnt_af[t] += 1
+                                if (t not in frontier and t not in executed
+                                        and len(ops[t].qubits) == 2
+                                        and cnt_af[t] == n2q_deps[t]):
+                                    l1.add(t)
                     elif deps[s] <= allowed and len(ops[s].qubits) == 2:
                         ext.add(s)
             continue
@@ -229,7 +281,8 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                      np.zeros(0, dtype=np.int64)))
 
         eps = set(fq1.tolist()) | set(fq2.tolist())
-        if eq1.size:  # 扩展集位置同样参与候选（qiskit：候选边取 F∪E 邻域）
+        if cand_scope == "fext" and eq1.size:
+            # 扩展集位置同样参与候选（旧语义）
             eps |= set(eq1.tolist()) | set(eq2.tolist())
         # 候选边：前沿门触碰位置的邻接边（排序遍历 → 全量扫描同序）
         pairs = set()
@@ -251,6 +304,21 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         De = after_dist_matrix(dist_flat, spec.n, eq1, eq2, ea_, eb_)
         ext_cost = De.sum(axis=1)
         ms_delta = 1.0 - unlocked / max(len(fq1), 1)
+        # lookahead 层评分（qiskit rust 语义）：第 1 层门集的交换后距离和
+        l1_cost = None
+        if l1:
+            lq1 = np.array([pos[ops[i].qubits[0]] for i in l1],
+                           dtype=np.int64)
+            lq2 = np.array([pos[ops[i].qubits[1]] for i in l1],
+                           dtype=np.int64)
+            l1_cost = after_dist_matrix(dist_flat, spec.n, lq1, lq2,
+                                        ea_, eb_).sum(axis=1)
+        if _DEBUG_LAYER and len(cand) > 0:
+            print(f"[dbg] |front|={len(fq1)} |ext|={len(eq1)} |l1|={len(l1)} "
+                  f"basic=({basic.min():.1f},{basic.max():.1f}) "
+                  + (f"l1_raw=({l1_cost.min():.1f},{l1_cost.max():.1f}) "
+                     if l1_cost is not None else "l1_EMPTY"),
+                  flush=True)
         h2 = None
         if lookahead_w > 0.0 or scorer is not None:
             # 前瞻（SABRE Algorithm 3）：每候选 s 先换位得到前沿新位置，
@@ -269,8 +337,9 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 v = D2.sum(axis=1).astype(np.float64)
                 v[c] = np.inf  # 排除自身（两次同边换位=恒等，无信息）
                 h2[c] = v.min()
-        scores = basic + wext * ext_cost + (lookahead_w * h2 if h2 is not None
-                                            else 0.0)
+        scores = basic + wext * ext_cost \
+            + (lookahead_w * h2 if h2 is not None else 0.0) \
+            + (wl * l1_cost if l1_cost is not None else 0.0)
         if decay_inc > 0.0:
             # decay：整体 × max(乘数)（qiskit DecayHeuristic 语义）
             scores = scores * np.maximum(decay[ea_], decay[eb_])
@@ -326,8 +395,14 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                         path.append(u)
                         u = prev[u]
                     path.reverse()
-                    for k in range(len(path) - 1):
-                        a, b = path[k], path[k + 1]
+                    # 两端向中间 split 推进（qiskit force_enable_closest_
+                    # node 语义）：左右两侧 swap 可并行，深度减半
+                    split = len(path) // 2
+                    moves = [(path[i], path[i + 1]) for i in range(split)]
+                    for i in range(split - 1):
+                        e = len(path) - 1 - i
+                        moves.append((path[e], path[e - 1]))
+                    for a, b in moves:
                         out.append(Inst("swap", (a, b)))
                         swap_count += 1
                         batch.append((a, b))
@@ -411,10 +486,22 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                         if touch.any():
                             scores = scores * np.where(touch, tabu_mult, 1.0)
             scores = scores + lam_ms * ms_delta
-            # 平局裁决：评分在最优+noise_tie 容差内的候选按边误差升序
-            # （噪声感知，qiskit 无此机制）；误差同分时种子随机
+            # 平局裁决：qiskit best_epsilon=1e-10 容差（rust 语义）——
+            # 距离和是整数，存在大量精确平局；lookahead 层分量（~1e-8
+            # 量级）在容差内打破平局定向选择（知情平局裁决，qiskit
+            # lookahead 层实测 38% 收益的来源）。noise_tie 保留为噪声
+            # 感知扩展（默认 0 关闭）。
             sbest = scores.min()
-            tied = np.where(scores <= sbest + noise_tie)[0]
+            tied = np.where(scores <= sbest + max(1e-10, noise_tie))[0]
+            if _DEBUG_LAYER and len(tied) > 1:
+                if l1_cost is not None:
+                    lr = (l1_cost[tied].min(), l1_cost[tied].max())
+                else:
+                    lr = None
+                print(f"[dbg-tie] n_tied={len(tied)} n_cand={len(cand)} "
+                      f"basic_tied=({basic[tied].min()},{basic[tied].max()}) "
+                      + (f"l1_tied={lr}" if lr else "l1_EMPTY"),
+                      flush=True)
             if noise_tie > 0.0 and edge_err is not None and len(tied) > 1:
                 errs = edge_err[ea_[tied] * spec.n + eb_[tied]]
                 ebest = errs.min()
