@@ -1197,6 +1197,8 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
     # 4→12 轮 1Q −19% 且 20 轮仍在缓降——提前退出兜底墙钟）
     for rnd in range(12):
         changed = False
+        _sort_segment_1q(out.ops)   # 段内重排：同比特游程相邻，
+                                    # merge 才能吃跨比特段的长游程
         if merge_1q_runs(out.ops) > 0:
             new_ops = []
             for inst in out.ops:
@@ -1230,7 +1232,7 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
             # 同对 cz 聚拢（qiskit O1 同款机制）→ A2 吃完整 12-cz 块
             _sort_segment_1q(out.ops)
             _merge_sx_pairs(out.ops)
-            slide_x_through_cz(out.ops)
+            slide_x_through_cz(out.ops, max_rounds=12)
             _cluster_cz_segments(out.ops)
             out2 = collect_resynthesize_2q_blocks(out, spec, max_blocks=40)
             # A2 合成器输出 cx/u1 非平台门——立即再翻译（否则循环
