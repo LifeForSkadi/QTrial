@@ -409,3 +409,19 @@ hwb10 43.5 万 vs qiskit 25 万（1.74x，cz 差距 1.47x 传导为主）。
 
 **medium 全量**：新代码 3 片（b645g9cwb/b1wi0lso3/b1mjv2ohk，seeds 20
 + 超时 900s）进行中。small 0.851x 感知O3（旧 0.844x）。
+
+### -5 补充（2026-11-13 深夜二）：dtc 差距深挖结论
+
+qiskit 权重消融（dtc 100 比特）：w=1e-9 即触发 4674→2909（结构
+效应同 gf2^7）；w=0.5 劣化 3471——证明层内容与 front 不同（非复制）。
+我们的层分量对平局候选常数（l1_tied 全同、wl=50 零效果）——层 =
+front 的同比特复制（依赖修复后 L1 门与 front 门物理位置重合）。
+
+dag.rs 新发现：SabreDAG 把【同对连续 2Q 门】合并为链节点
+（prev.indices.push；Single 前驱且同对 ⇒ 整链执行）。我们逐门处理
+等价于链头执行后立即执行后续（exec_now 全扫描），该点初步判定非
+评分差异来源——dtc 2x 差距（seeds20 min 3818 vs qiskit trials3
+1549）的完整机制仍待定位，候选：链合并下的层构造时序细节。
+
+贪心图匹配布局（layout.greedy_graph_match_layout）已实现：hwb10
+仅 −3%（稠密图匹配空间有限），未接入候选池，保留备用。
