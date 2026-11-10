@@ -425,3 +425,31 @@ dag.rs 新发现：SabreDAG 把【同对连续 2Q 门】合并为链节点
 
 贪心图匹配布局（layout.greedy_graph_match_layout）已实现：hwb10
 仅 −3%（稠密图匹配空间有限），未接入候选池，保留备用。
+
+### -5 补充三（2026-11-13 凌晨）：A2 块重合成机制链（heisenberg 类攻坚）
+
+**用户指令**：超越目标 = RL布局+感知O3 管线（非纯血感知O3）；小批量
+超越前不全量测试；机制级改进（拒绝暴力堆算力调参）；持续改进；
+每次验证正确性 + 真机可行性。
+
+**机制链（已提交，git 最新）**：
+1. collect_2q_blocks 修复：1Q 间隔跨越仅支持单门（u3 展开 5-7 连续
+   1Q 切断收集）→ 任意长度 1Q 序列跨越
+2. 循环内 A2（decompose_to_platform_v2 的 resynth_every 参数，
+   mapper 传 spec + every=1）：对标 qiskit O2 的 tqp+FixedPoint
+3. _sort_segment_1q（段内按比特通勤重排）+ _merge_sx_pairs
+   （sx·sx=x 精确）+ slide_x_through_cz（X 穿 cz 带对面 rz(π)·i，
+   恒等式数值验证）+ _cluster_cz_segments（同对 cz 对易聚拢）
+4. A2 产物 cx/u1 残留修复（立即 v4 再翻译）
+
+**qiskit 机制定位过程**（消融+源码）：288cx→72cz 的压缩 = O1 产物
+同对 cz 连续块（1Q 优化聚拢）→ O2 的 TwoQubitPeepholeOptimization
+一步合成（手工验证 O1 产物 + tqp = 72）；bicolor runs 语义
+（rustworkx dag_algo 源码）；blocks_to_matrix 只含块比特门。
+
+**数字**：heisenberg N16 平凡布局 cz 429→228、fid 3.0e-8→4.9e-5；
+完整管线 fid 0.205→0.335（vs RL+感知O3 0.4456：0.46x→0.75x）。
+N25/N36 小批量进行中（b4oryttgi）。剩余差距 = 162→72 cz 的
+2.25x：sx 阻挡聚拢（A2 合成产物 cz 比特上的 sx 471 个）——下一
+机制：1Q 通勤把跨比特门移出 cz 链（qiskit O1 聚拢的完整语义）。
+medium 全量 254/259（机制链前基线，分片 4 收尾）。
