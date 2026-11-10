@@ -516,3 +516,16 @@ N36 0.968x；queko 20QBT v7=0.788（墙钟 4s，路由极速化）。未整体
 下一工程：1Q 模板改革——fit_block_cz（3cz 基 16 参数：4×SU(2)
 euler + 4 中间 rz；中间旋转 rz-only 对齐 qiskit tqp 输出结构，
 每块 11 门 vs 28 门）。风险：Adam 收敛（需多起点初值）。
+
+### -5 补充九（2026-11-13 凌晨七）：1Q 模板改革障碍与收尾
+
+fit_block_cz（3cz 基 16 参数）已实现未接入：Adam 卡局部最优
+（ov 0.695/0.804，KAK 初值映射与 12 随机起点均无效）。疑因：
+16 参数对 15 维 SU(4) 冗余平坦方向。恢复后路线：删 1 参数（15
+参）+ lr 调度 + 或改用解析的 cz 基 KAK 初值（qiskit
+TwoQubitBasisDecomposer 的 cz 基底映射）。
+当前管线状态（语义正确）：链穿 1Q + owner 附着 + PCG 平局 +
+A2 机制链全部生效；端到端小批量 heisenberg N16 0.873x / N25
+0.709x / N36 0.968x / queko 0.788——未整体超越，全量冻结。
+纯路由 mixed20 四线路反超 qiskit（hwb10/gf2^7/barenco/adder）、
+dtc 差 5%。
