@@ -742,9 +742,6 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
                                        _su2_euler, _cached_3cx_params)
 
     ops = circ.ops
-    err2q = spec.calib.err_2q
-    err1q = spec.calib.err_1q
-    med2q = float(np.median(list(err2q.values()))) if err2q else 1e-3
     blocks = collect_2q_blocks(circ, spec)
     if max_blocks is not None:
         blocks = blocks[:max_blocks]
@@ -779,100 +776,76 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
             continue
         new_insts = block_params_to_insts(t, pair)
         tu_ok = False
-        if use_tuccil:
-            # Tuccil 3-CZ 模板精修（2026-11-13）：3cx 解转 cz 基初值
-            # → 多起点拟合选最少门（8 因子可对角化——1Q 差距 1.66x
-            # 的模板级修复：3cx 固定 12 单位 vs Tuccil 对角解 ~6
-            # 单位）。消融结论：端到端被 1Q 不动点循环吸收、零收益，
-            # 默认关闭。
-            try:
-                from qtrail.pure.synthesis import fit_block_tuccil
-                from qtrail.pure.post import _u3_to_rzsx_min
-                czseq = _to_cz_basis(new_insts)
-                init24 = np.zeros(24)
-                u3s = [i for i in czseq if i.name == 'u3']
-                rzs = [i for i in czseq if i.name == 'rz']
-                if len(u3s) >= 4:
-                    init24[0:6] = u3s[0].params + u3s[1].params
-                    init24[18:24] = u3s[-2].params + u3s[-1].params
-                for j, r in enumerate(rzs[:4]):
-                    init24[6 + 3 * j] = r.params[0]
+        if not use_tuccil:
+            ops[start:end] = new_insts
+            continue
+        # Tuccil 3-CZ 模板精修（2026-11-13）：3cx 解转 cz 基初值 →
+        # 多起点拟合选最少门（8 因子可对角化——1Q 差距 1.66x 的
+        # 模板级修复：3cx 固定 12 单位 vs Tuccil 对角解 ~6 单位）
+        try:
+            from qtrail.pure.synthesis import fit_block_tuccil
+            from qtrail.pure.post import _u3_to_rzsx_min
+            czseq = _to_cz_basis(new_insts)
+            init24 = np.zeros(24)
+            u3s = [i for i in czseq if i.name == 'u3']
+            rzs = [i for i in czseq if i.name == 'rz']
+            if len(u3s) >= 4:
+                init24[0:6] = u3s[0].params + u3s[1].params
+                init24[18:24] = u3s[-2].params + u3s[-1].params
+            for j, r in enumerate(rzs[:4]):
+                init24[6 + 3 * j] = r.params[0]
 
-                def n1q_of_tu(tv):
-                    return sum(len(_u3_to_rzsx_min(
-                        float(tv[3 * j]), float(tv[3 * j + 1]),
-                        float(tv[3 * j + 2]))) for j in range(8))
+            def n1q_of_tu(tv):
+                return sum(len(_u3_to_rzsx_min(
+                    float(tv[3 * j]), float(tv[3 * j + 1]),
+                    float(tv[3 * j + 2]))) for j in range(8))
 
-                rng_t = np.random.default_rng(1)
-                best_n = None
-                best_tu = None
-                for s in range(12):
-                    init_s = (init24 + rng_t.uniform(-1.5, 1.5, 24)
-                              if s > 0 else init24)
-                    # 分阶段 lr：粗调快收敛到邻域 + 精修（实测收敛率
-                    # 8/8，单 lr 5/8）
-                    t_s, ov_s = fit_block_tuccil(U, init_s, steps=300,
-                                                 lr=0.2)
-                    if ov_s >= 1 - 1e-7:
-                        t_s, ov_s = fit_block_tuccil(U, t_s, steps=500,
-                                                     lr=0.02)
-                    if ov_s < 1 - 1e-7:
-                        continue
-                    n_s = n1q_of_tu(t_s)
-                    if best_n is None or n_s < best_n:
-                        best_n, best_tu = n_s, t_s
-                if best_tu is None:
-                    raise RuntimeError('tuccil no convergence')
-                # 输出：8 因子最优分解 + 3 cz（直接平台门）
-                tu_out = []
-                for j in range(8):
-                    a, b = pair
-                    q = a if j in (0, 2, 4, 6) else b
-                    for g, gp in _u3_to_rzsx_min(
-                            float(best_tu[3 * j]), float(best_tu[3 * j + 1]),
-                            float(best_tu[3 * j + 2])):
-                        tu_out.append(Inst(g, (q,), gp))
-                    if j in (1, 3, 5):
-                        tu_out.append(Inst('cz', (a, b)))
-                # 块级择优：Tuccil 与通用 3cx 解按平台化后 1Q 数取小者
-                # ——12 起点可能落次优局部极值，择优保证严格不劣化
-                n_generic = sum(1 for _i in _platformize_insts(new_insts)
-                                if _i.nq == 1)
-                n_tu = sum(1 for _i in tu_out if _i.nq == 1)
-                if n_tu < n_generic:
-                    new_insts = tu_out
-                    tu_ok = True
-            except Exception:
-                pass
-        # 误差积守卫（2026-11-13）：替换仅当平台化后的全误差积
-        # （2Q+1Q）严格提升——3-cz 坍缩在 1Q 侧昂贵（~40 门/块），
-        # 门数最小化 ≠ 保真度最大化（h16 实测：我们 72cz+768 1Q
-        # vs qiskit 保守坍缩 114cz+468 1Q——后者保真度更高）。
-        # est_fidelity = Π(1-ε)，守卫即该目标的逐块梯度方向。
-        e2 = float(err2q.get(pair, err2q.get((pair[1], pair[0]), med2q)))
-        e1 = dict(err1q) if hasattr(err1q, "items") else err1q
-        med1 = (float(np.median(list(e1.values())))
-                if hasattr(e1, "values") else float(np.median(list(e1))))
-
-        def _err_prod(insts):
-            f = 1.0
-            for _i in insts:
-                if _i.nq == 2:
-                    f *= max(1.0 - e2, 1e-12)
-                else:
-                    _q = int(_i.qubits[0])
-                    _e = e1.get(_q, med1) if hasattr(e1, "get") \
-                        else (e1[_q] if _q < len(e1) else med1)
-                    f *= max(1.0 - float(_e), 1e-12)
-            return f
-
-        plat = _platformize_insts(new_insts)
-        old_plat = _platformize_insts(list(ops[start:end]))
-        if _err_prod(plat) <= _err_prod(old_plat):
-            continue  # 不替换：误差积无提升（保守坍缩优于激进坍缩）
-        ops[start:end] = plat
+            rng_t = np.random.default_rng(1)
+            best_n = None
+            best_tu = None
+            for s in range(12):
+                init_s = (init24 + rng_t.uniform(-1.5, 1.5, 24)
+                          if s > 0 else init24)
+                # 分阶段 lr：粗调快收敛到邻域 + 精修（实测收敛率
+                # 8/8，单 lr 5/8）
+                t_s, ov_s = fit_block_tuccil(U, init_s, steps=300,
+                                             lr=0.2)
+                if ov_s >= 1 - 1e-7:
+                    t_s, ov_s = fit_block_tuccil(U, t_s, steps=500,
+                                                 lr=0.02)
+                if ov_s < 1 - 1e-7:
+                    continue
+                n_s = n1q_of_tu(t_s)
+                if best_n is None or n_s < best_n:
+                    best_n, best_tu = n_s, t_s
+            if best_tu is None:
+                raise RuntimeError('tuccil no convergence')
+            # 输出：8 因子最优分解 + 3 cz（直接平台门）
+            tu_out = []
+            for j in range(8):
+                a, b = pair
+                q = a if j in (0, 2, 4, 6) else b
+                for g, gp in _u3_to_rzsx_min(
+                        float(best_tu[3 * j]), float(best_tu[3 * j + 1]),
+                        float(best_tu[3 * j + 2])):
+                    tu_out.append(Inst(g, (q,), gp))
+                if j in (1, 3, 5):
+                    tu_out.append(Inst('cz', (a, b)))
+            # 块级择优（2026-11-13）：Tuccil 与通用 3cx 解按平台化后
+            # 1Q 数取小者——12 起点可能落次优局部极值，择优保证
+            # 严格不劣化（理论：Tuccil 对角化是 1Q 下界方向，但拟合
+            # 收敛无全局保证）
+            n_generic = sum(1 for _i in _platformize_insts(new_insts)
+                            if _i.nq == 1)
+            n_tu = sum(1 for _i in tu_out if _i.nq == 1)
+            if n_tu < n_generic:
+                new_insts = tu_out
+                tu_ok = True
+        except Exception:
+            pass
+        ops[start:end] = new_insts
         if lock_emissions and tu_ok:
-            for _inst in plat:
+            for _inst in new_insts:
                 _inst.tu_locked = True
     circ._deps = None
     return circ
