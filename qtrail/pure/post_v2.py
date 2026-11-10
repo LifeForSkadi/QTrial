@@ -134,8 +134,11 @@ def merge_1q_runs(out_ops: list) -> int:
 
 
 def _is_h_block(ops, i):
+    q = ops[i].qubits[0]
     return (ops[i].name == "rz" and ops[i + 1].name == "sx"
             and ops[i + 2].name == "rz"
+            and ops[i + 1].qubits[0] == q
+            and ops[i + 2].qubits[0] == q
             and abs(ops[i].params[0] - H_GATE[0]) < 1e-9
             and abs(ops[i + 2].params[0] - H_GATE[0]) < 1e-9)
 
@@ -218,20 +221,24 @@ def _absorb_h(out_ops: list) -> int:
     i = 0
     n = len(out_ops)
     while i < n:
-        # 模式：H,rz(θ),H → rx(θ)（rz 夹在两个 H 块之间）
+        # 模式：H,rz(θ),H → rx(θ)（rz 夹在两个 H 块之间）。
+        # 恒等式：H·rz(θ)·H = rx(θ) = U3(θ, −π/2, π/2)（模全局相位）；
+        # 旧实现的 3 门替换 [rz(π/2),sx,rz(θ)] 只是"半个 H + rz"——
+        # 语义错误（2026-11-13 经 qaoa12 fid=0.25 复现定位，修正为
+        # 经 B8 合成器生成完整 rx(θ) 分解）。
         if (i + 6 < n and _is_h_block(out_ops, i)
                 and out_ops[i + 3].name == "rz"
                 and out_ops[i + 3].qubits[0] == out_ops[i].qubits[0]
                 and _is_h_block(out_ops, i + 4)):
             q = out_ops[i].qubits[0]
             th = out_ops[i + 3].params[0]
-            # rx(θ) = rz(π/2), sx, rz(θ)
-            out_ops[i:i + 7] = [Inst("rz", (q,), (H_GATE[0],)),
-                                Inst("sx", (q,)),
-                                Inst("rz", (q,), (th,))]
-            n -= 4
+            from qtrail.pure.post import _u3_to_rzsx_min
+            rx_gates = _u3_to_rzsx_min(th, -math.pi / 2, math.pi / 2)
+            repl = [Inst(g, (q,), p) for g, p in rx_gates]
+            out_ops[i:i + 7] = repl
+            n += len(repl) - 7
             n_changed += 1
-            i += 3
+            i += len(repl)
             continue
         i += 1
     return n_changed
@@ -265,6 +272,67 @@ def _cancel_adjacent_cz(out_ops: list) -> int:
                 break
         else:
             i += 1
+    return removed
+
+
+def _cancel_cz_global(out_ops: list) -> int:
+    """B6+ 全局 cz 对消（对标 qiskit CommutativeCancellation 的全线路语义）。
+
+    cz 与 cz/rz 全对易、与比特不相交的 sx/x 对易——线路按"通行段"
+    划分（段边界 = 与段内 cz 共享比特的 sx/x/h 门），段内 cz 可自由
+    移动：按比特对统计奇偶，偶数全消、奇数保留 1 个（置于段尾，
+    保持非 cz 门原位）。O(n) 单遍。返回移除门数。
+    """
+    removed = 0
+    out = []
+    seg = []          # 当前通行段
+    seg_cz_bits = set()
+    seg_sx_bits = set()
+
+    def flush():
+        nonlocal removed
+        if not seg:
+            return
+        cnt = {}
+        keep_order = []
+        for inst in seg:
+            if inst.name == "cz":
+                key = tuple(sorted(inst.qubits))
+                if key not in cnt:
+                    cnt[key] = 0
+                    keep_order.append(key)
+                cnt[key] += 1
+        keep = [k for k in keep_order if cnt[k] % 2 == 1]
+        noncz = [inst for inst in seg if inst.name != "cz"]
+        removed += len(seg) - len(noncz) - len(keep)
+        out.extend(noncz)
+        out.extend(Inst("cz", k) for k in keep)
+        seg.clear()
+        seg_cz_bits.clear()
+        seg_sx_bits.clear()
+
+    for inst in out_ops:
+        if inst.name in ("sx", "x", "h") and inst.nq == 1 \
+                and int(inst.qubits[0]) in seg_cz_bits:
+            flush()
+            out.append(inst)
+        elif inst.name in ("cz", "rz"):
+            # cz 与段内不相交 sx/x 若共享比特则不可穿过 → 切断
+            if inst.name == "cz" and (
+                    set(int(q) for q in inst.qubits) & seg_sx_bits):
+                flush()
+            seg.append(inst)
+            if inst.name == "cz":
+                seg_cz_bits.update(int(q) for q in inst.qubits)
+        elif inst.name in ("sx", "x") and inst.nq == 1 \
+                and int(inst.qubits[0]) not in seg_cz_bits:
+            seg.append(inst)   # 不相交：可穿过
+            seg_sx_bits.add(int(inst.qubits[0]))
+        else:
+            flush()
+            out.append(inst)
+    flush()
+    out_ops[:] = out
     return removed
 
 
@@ -961,7 +1029,7 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
         slide_1q_through(out.ops)        # B7：1Q 跨门通勤聚拢
         commute_rz_through_cz(out.ops)   # A2：可交换消解
         _absorb_h(out.ops)               # B5：H·rz·H → rx（H 吸收）
-        _cancel_adjacent_cz(out.ops)     # B6：cz·cz = I（补全 cx·cx 消解链）
+        _cancel_cz_global(out.ops)       # B6+：cz 全局对消（全线路通行段）
         _cancel_adjacent_h(out.ops)
         _strip_identity_1q(out.ops)      # B4：恒等门移除
         changed = changed or len(out.ops) != before
