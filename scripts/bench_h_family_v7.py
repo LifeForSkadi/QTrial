@@ -54,12 +54,13 @@ def main():
                             pipeline="v5", routing_seeds=16)
         t0 = time.time()
         res = mapper.map_circuit(circ, circuit_id=name)
-        f = res["metrics"]["est_fidelity"]
+        m = res["metrics"]
+        f = m["est_fidelity"]
         base = rl_o3.get(name)
         ratio = (f / base) if base else float("nan")
         print(f'{name}: v7={f:.4e} RL+O3={base} 比值={ratio:.3f}x '
-              f'swaps={res["swap_count"]} depth={res["metrics"]["depth"]} '
-              f'({time.time()-t0:.0f}s)', flush=True)
+              f'swaps={res["swap_count"]} twoq={m["twoq_count"]} '
+              f'depth={m["depth"]} ({time.time()-t0:.0f}s)', flush=True)
 
 
 if __name__ == "__main__":

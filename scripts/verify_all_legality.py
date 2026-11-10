@@ -9,6 +9,7 @@ routing_seeds=16、timeout 900s），产物做真机合法性三重扫描 +
 from __future__ import annotations
 
 import json
+import re
 import sys
 import threading
 import time
@@ -21,14 +22,18 @@ from qtrail.devices import build_tianyan287_spec
 from qtrail.models import QAPolicy
 from qtrail.pure.mapper import PureMapper
 from qtrail.pure.qasm import parse_qasm
+from qtrail.utils.bench import iter_queko_files
+from qtrail.utils.qasm_io import sanitize_qasm
 
 CKPT = "checkpoints/tianyan-287_gat_combined_calib_dep0.1_t0.5_c0.05_best.pt"
 BP = Path("data/benchpress/qasm")
+CACHE = Path("data/mqtbench/stratified")
 OUT = Path("tables/final_report_v7")
 
 
 def load_circuits():
-    """与 final_report_bench_v7 同口径的 587 线路清单。"""
+    """与 final_report_bench_v7 完全同口径的 587 线路清单
+    （benchpress + mqtbench/stratified + queko BIGD 三源）。"""
     buckets = {"small": [], "medium": [], "large": []}
     for p in BP.rglob("*.qasm"):
         text = p.read_text(encoding="utf-8", errors="replace")
@@ -42,6 +47,18 @@ def load_circuits():
             continue
         b = "small" if circ.n <= 10 else ("medium" if circ.n <= 50 else "large")
         buckets[b].append((f"bp_{p.parent.name}_{p.stem}", text))
+    for p in sorted(CACHE.glob("*.qasm")):
+        name = p.stem
+        size = int(name.rsplit("_", 1)[1])
+        if size > 105:
+            continue
+        b = "small" if size <= 10 else ("medium" if size <= 50 else "large")
+        buckets[b].append((name, sanitize_qasm(p.read_text(encoding="utf-8"))))
+    for p in iter_queko_files("BIGD"):
+        if re.search(r"\.(3|4)D1_\.(4|5)D2_", p.name) \
+                or re.search(r"\.0D1_\.1D2_", p.name):
+            buckets["medium"].append(
+                (p.stem, sanitize_qasm(p.read_text(encoding="utf-8"))))
     return buckets
 
 
