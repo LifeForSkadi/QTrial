@@ -529,3 +529,15 @@ A2 机制链全部生效；端到端小批量 heisenberg N16 0.873x / N25
 0.709x / N36 0.968x / queko 0.788——未整体超越，全量冻结。
 纯路由 mixed20 四线路反超 qiskit（hwb10/gf2^7/barenco/adder）、
 dtc 差 5%。
+
+### -5 补充十（2026-11-13 凌晨八）：1Q 模板改革的理论终结论
+
+fit_block_cz（rz-only 中间）不完备：CZ 对角只生成 ZZ 方向 Cartan
+分量，kx/ky 缺失——ov 上限 0.865 实锤。loss 修复（模方凸化）与
+15 参数规范固定均无效（非优化问题是表示问题）。
+正解路线：21 参数 3cx 模板（完备收敛）+ 输出后 Weyl 胞腔 24 代表
+的解析变换枚举，选输出门数最少者（qiskit synthesize_2q_matrix
+的 score_sequence 语义；变换解析无需重拟合）。此前 α 一维扫描
+无效因未覆盖胞腔分支。
+全量测试（语义正确版新口径）运行中：small 1 片 + medium 6 片 +
+large 4 片（seeds 16）。
