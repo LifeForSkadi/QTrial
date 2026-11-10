@@ -474,6 +474,12 @@ def collect_2q_blocks(circ, spec):
 
     返回 [(start, end, pair, n_swap, n_2q)]（ops 索引区间，含区间内所有门）。
     只返回"合成有利"的块：3·s + g > 3（合成 3 CX 少于原展开 3s+g）。
+
+    tu_locked 冻结段（2026-11-13 Tuccil 循环保护）：tu_locked 标记的
+    cz 是硬块边界——不作为块起点、不跨越扩展。机制：Tuccil 3-CZ
+    模板产物（块级 1Q −66%）若不冻结，后续轮次的同对 cz 聚拢会把它
+    与邻居 cz 排成连续游程，再被收集成块重新合成——紧凑输出被通用
+    3cx 形态吸收（不动点吸收机制）。
     """
     blocks = []
     ops = circ.ops
@@ -482,6 +488,9 @@ def collect_2q_blocks(circ, spec):
     while i < n:
         inst = ops[i]
         if inst.nq == 2 and inst.name in ("cx", "cz", "swap"):
+            if getattr(inst, "tu_locked", False):
+                i += 1
+                continue
             a, b = int(inst.qubits[0]), int(inst.qubits[1])
             if a > b:
                 a, b = b, a
@@ -492,15 +501,25 @@ def collect_2q_blocks(circ, spec):
             j = i + 1
             s = 1 if inst.name == "swap" else 0
             g = 0 if inst.name == "swap" else 1
-            # 扩展块：同对 2Q 门（中间允许任意长度的 1Q 序列——2026-11-13
-            # 修复：此前只支持"单个 1Q 门"跨越，u3 展开的 5-7 连续 1Q
-            # 序列切断收集，heisenberg 类 12cx/对 的块全空、A2 零效果）
+            # 扩展块：同对 2Q 门 + 对比特 1Q 门（中间允许任意长度——
+            # 2026-11-13 修复：此前只支持"单个 1Q 门"跨越，u3 展开的
+            # 5-7 连续 1Q 序列切断收集，heisenberg 类 12cx/对 的块全空、
+            # A2 零效果）。
+            # 2026-11-13 语义修复：**外比特 1Q 门是硬边界**——4×4 块酉
+            # 无法表示第三比特的效应（_block_unitary 会把它误当对位
+            # b 的门，拟合守卫对错误 U 通过，替换后语义崩：heisenberg
+            # N16 实测 fid 2.3e-5）。qiskit Collect2qBlocks 的
+            # "uninterrupted" 语义同款。
             while j < n:
                 nj = ops[j]
                 if nj.nq == 1:
-                    j += 1
-                    continue
+                    if int(nj.qubits[0]) == a or int(nj.qubits[0]) == b:
+                        j += 1
+                        continue
+                    break
                 if nj.nq == 2 and nj.name in ("cx", "cz", "swap"):
+                    if getattr(nj, "tu_locked", False):
+                        break
                     a2, b2 = int(nj.qubits[0]), int(nj.qubits[1])
                     if a2 > b2:
                         a2, b2 = b2, a2

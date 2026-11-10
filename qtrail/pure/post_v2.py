@@ -691,7 +691,8 @@ def _block_unitary(ops_slice, pair):
 
 
 def collect_resynthesize_2q_blocks(circ: Circuit, spec,
-                                    max_blocks: int | None = None) -> Circuit:
+                                    max_blocks: int | None = None,
+                                    lock_emissions: bool = False) -> Circuit:
     """A2 组件：2Q 块收集 + 重合成（SWAP 消化）。
 
     流程：collect_2q_blocks 收集同比特对的连续 2Q 门块（含中间 1Q）→
@@ -701,6 +702,10 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
     块内 2Q 门均作用于同一对（a, b），且 (a, b) 在耦合图上（收集时
     已检查）→ 合成产物硬件合法。噪声感知选优（KAK 相位自由度）作为
     后续增强（当前先保证正确性与收益）。
+
+    lock_emissions（2026-11-13 Tuccil 循环保护）：True 时给 Tuccil
+    3-CZ 模板成功产物的每个门打 tu_locked 标记——后续轮次收集把
+    它们当硬块边界（防不动点吸收，见 collect_2q_blocks）。
     """
     from qtrail.pure.synthesis import (block_params_to_insts,
                                        collect_2q_blocks, fit_block_torch,
@@ -741,6 +746,7 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
         if ov < 1 - 1e-7:
             continue
         new_insts = block_params_to_insts(t, pair)
+        tu_ok = False
         # Tuccil 3-CZ 模板精修（2026-11-13）：3cx 解转 cz 基初值 →
         # 多起点拟合选最少门（8 因子可对角化——1Q 差距 1.66x 的
         # 模板级修复：3cx 固定 12 单位 vs Tuccil 对角解 ~6 单位）
@@ -794,9 +800,13 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
                 if j in (1, 3, 5):
                     tu_out.append(Inst('cz', (a, b)))
             new_insts = tu_out
+            tu_ok = True
         except Exception:
             pass
         ops[start:end] = new_insts
+        if lock_emissions and tu_ok:
+            for _inst in new_insts:
+                _inst.tu_locked = True
     circ._deps = None
     return circ
 
@@ -1375,7 +1385,8 @@ def commute_cancel_cx(out_ops: list, window: int = 12,
 def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
                              cancel_cx: bool = True,
                              fixpoint: bool = True,
-                             spec=None, resynth_every: int = 0) -> Circuit:
+                             spec=None, resynth_every: int = 0,
+                             lock_emissions: bool = False) -> Circuit:
     """v5 平台基分解：v4 分解（cx→H-CZ-H、swap→3cx、u3→rzsx）+ 1Q 优化
     不动点循环（对标 qiskit Optimize1qGates + 交换消除）。
 
@@ -1439,7 +1450,8 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
             _merge_sx_pairs(out.ops)
             slide_x_through_cz(out.ops, max_rounds=12)
             _cluster_cz_segments(out.ops)
-            out2 = collect_resynthesize_2q_blocks(out, spec, max_blocks=40)
+            out2 = collect_resynthesize_2q_blocks(out, spec, max_blocks=40,
+                                                 lock_emissions=lock_emissions)
             # A2 合成器输出 cx/u1 非平台门——立即再翻译（否则循环
             # 早停后残留非平台门，2026-11-13）
             # 直接平台化（2026-11-13）：合成输出 u3/u1/cx → rz/sx/cz
@@ -1455,5 +1467,6 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
     # 最后跑一轮 A2——产物不再进循环，块级 −66% 收益释放
     if resynth_every > 0 and spec is not None:
         _cluster_cz_segments(out.ops)
-        out = collect_resynthesize_2q_blocks(out, spec, max_blocks=60)
+        out = collect_resynthesize_2q_blocks(out, spec, max_blocks=60,
+                                             lock_emissions=lock_emissions)
     return out
