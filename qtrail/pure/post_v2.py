@@ -1450,4 +1450,10 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
             out = out2
         if not changed:
             break
+    # 最后一轮 A2（2026-11-13 Tuccil 循环保护）：循环的 1Q 优化
+    # 会把 Tuccil 紧凑输出重新膨胀（不动点吸收），故在循环收敛后
+    # 最后跑一轮 A2——产物不再进循环，块级 −66% 收益释放
+    if resynth_every > 0 and spec is not None:
+        _cluster_cz_segments(out.ops)
+        out = collect_resynthesize_2q_blocks(out, spec, max_blocks=60)
     return out
