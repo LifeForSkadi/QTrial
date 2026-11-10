@@ -354,5 +354,58 @@ make_ppt_v5(叙事已更新、p7 数字待填)}；qiskit rust 源码在 %TEMP%
 （sabre_heuristic/route/layer.rs、tqp.rs、euler1q.rs）。
 
 **下一步候选（压缩后继续）**：① 等 medium 完成出最终三方法表 +
-PPT 数字；② queko 类布局路由性修复（1 天，B 实验 28/30 可追）；
-③ 学习式路由 LARBE 式（2-4 天，30-50%）；④ 真机口径验证（287 维护）。
+PPT 数字；② ~~queko 类布局路由性修复~~（用户 2026-11-13 决定：queko
+差距是 RL 布局噪声感知优先的差异化取舍，**接受，不做**）；③ 学习式
+路由 LARBE 式（2-4 天，30-50%）；④ 真机口径验证（287 维护，含
+adapter % 单位 bug 修复）。
+
+**重要修正（2026-11-13，用户指出"天衍提供各比特门类误差率"）**：
+- 核实 data/tianyan_probe/tianyan-287_config.json：1Q 物理门仅 X/2
+  （gate error 逐比特 %，rz 虚拟零误差）+ cz 逐边 + 读出 + T1/T2；
+  real_calib.json 已有完整数据。
+- **"校准数据壁垒"结论作废**：旧基线感知 O3 的 target 由
+  build_target(我们 spec.calib) 构造（final_report_bench.py:48-56），
+  qiskit 与我们的误差率输入同源——1Q 差距（67-98%）本质 = 算法
+  完备性（全线路通勤收集规则集 + O3 优化循环嵌套：KAK 重合成的 1Q
+  伴生门回到循环再优化），可追。
+- adapter.py live 路径 unit bug（% 未除 100）——真机口径前必修。
+- 2Q 差距缩小手段（按序）：a trials 6→20（免费）→ b rust lookahead
+  层复现（权重 0.005、38% swap 贡献，源码在 %TEMP%）→ c 联合选择
+  代理升级为真实路由 top-k → d 跨对块 KAK（1-2 天，中风险）→
+  e 优化循环结构排查。
+
+## -5. 通勤收集完备性轮（2026-11-13 深夜）
+
+**成果（git 8b09697/4f96c6b/63d3b94）**：
+1. **两个老语义 bug 修复**（新路由产物首次触发）：_is_h_block 缺
+   qubit 一致性（qaoa12 fid 0.25 复现定位）；_absorb_h 恒等式错误
+   （H·rz·H 被替换为半个 H + rz——改为经 B8 合成器生成 rx(θ)）。
+2. **B6+ 全局 cz 对消**（_cancel_cz_global 通行段 + 奇偶对消）。
+3. **不动点循环 4→12 轮**：hwb10 1Q −14%。
+4. **rz 双向段内聚集**（每轮 1 层 + 反向镜像）：微收益。
+5. **路由器依赖重建（最大成果）**：Circuit.deps() 的同比特链含 1Q
+   门，n2q_deps 过滤后 lookahead 层 matching 性被破坏——hwb10 上
+   L1 层 6429 门（16 比特）、层分量 ~76 压过 basic、层失效。修复 =
+   每门依赖 = 同比特前一个 2Q 门（qiskit SabreDAG：1Q 附着不被依赖）。
+   实测 hwb10 平凡布局 28828→21170（qiskit 20004）、**墙钟 217s→1s**、
+   真机拓扑（174 边）89s 完成（hwb 超时问题消失）、合法性通过
+   （零非法边、零禁用比特）。
+
+**qiskit 侧决定性发现（消融 + 对拍）**：
+- aw_o3_swaps=0 是口径假象：swap 被翻译成 cz（1 swap=3 cz）——旧表
+  该指标无意义，对比应改用 cz 数/depth/fid。
+- hwb10 的 73→24 边重写不是图态化简：ConsolidateBlocks/Split2Q/
+  UnitarySynthesis 消融均无效——是"路由搬运 + 优化对消"的自然结果。
+- qiskit 纯路由（平凡布局）hwb10：basic 29278 / lookahead 20004 /
+  decay 19639——lookahead 层在稠密图上同样大收益（我们的层之前失效
+  即因依赖语义 bug）。
+- 贪心图匹配布局（新增 layout.greedy_graph_match_layout）hwb10 仅
+  −3%（稠密图匹配空间有限）——候选池接入价值低，保留备用。
+
+**已知差距（继续攻）**：dtc_100 纯路由我们 5656 vs qiskit lookahead
+2909（trials=1）/1549（trials=3）——第 0 步即分叉（PRNG 平局，
+qiskit 选 (5,6) 我们 (7,8)）；seeds 20 的 min 应部分吸收。1Q 门数
+hwb10 43.5 万 vs qiskit 25 万（1.74x，cz 差距 1.47x 传导为主）。
+
+**medium 全量**：新代码 3 片（b645g9cwb/b1wi0lso3/b1mjv2ohk，seeds 20
++ 超时 900s）进行中。small 0.851x 感知O3（旧 0.844x）。
