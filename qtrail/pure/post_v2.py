@@ -1060,8 +1060,12 @@ def fold_and_relink(circ: Circuit, spec, max_relink: int = 800,
                     ok = False
                     break
             if not ok:
-                # 不吸收：保留 swap（按当前 arr 映射标签）
+                # 不吸收：保留 swap（按当前 arr 映射标签）——但标签
+                # 置换仍发生（2026-11-13 真机合法性暴露的老 bug：
+                # 漏 arr 同步交换导致后续门映射错位、保留的 swap
+                # 端点经后续置换后可不相邻）
                 out.append(Inst("swap", (int(arr[a]), int(arr[b]))))
+                arr[a], arr[b] = arr[b], arr[a]
                 i += 1
                 continue
             # 吸收：置换并入 arr
