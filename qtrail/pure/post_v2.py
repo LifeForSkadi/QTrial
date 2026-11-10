@@ -799,8 +799,16 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
                     tu_out.append(Inst(g, (q,), gp))
                 if j in (1, 3, 5):
                     tu_out.append(Inst('cz', (a, b)))
-            new_insts = tu_out
-            tu_ok = True
+            # 块级择优（2026-11-13）：Tuccil 与通用 3cx 解按平台化后
+            # 1Q 数取小者——12 起点可能落次优局部极值，择优保证
+            # 严格不劣化（理论：Tuccil 对角化是 1Q 下界方向，但拟合
+            # 收敛无全局保证）
+            n_generic = sum(1 for _i in _platformize_insts(new_insts)
+                            if _i.nq == 1)
+            n_tu = sum(1 for _i in tu_out if _i.nq == 1)
+            if n_tu < n_generic:
+                new_insts = tu_out
+                tu_ok = True
         except Exception:
             pass
         ops[start:end] = new_insts

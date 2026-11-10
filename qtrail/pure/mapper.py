@@ -254,7 +254,7 @@ class PureMapper:
             else:
                 routed = collect_resynthesize_2q_blocks(routed, self.spec)
         final_qc = decompose_to_platform_v2(routed, spec=self.spec,
-                                            resynth_every=3)
+                                            resynth_every=1)
         m_v4 = pure_metrics(final_qc_v4, routed_v4.count("swap"),
                             self.spec.calib,
                             predictor=self.fidelity_predictor)
