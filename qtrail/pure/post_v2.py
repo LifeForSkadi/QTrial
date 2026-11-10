@@ -765,11 +765,16 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
             rng_t = np.random.default_rng(1)
             best_n = None
             best_tu = None
-            for s in range(6):
-                init_s = (init24 + rng_t.uniform(-0.3, 0.3, 24)
+            for s in range(12):
+                init_s = (init24 + rng_t.uniform(-1.5, 1.5, 24)
                           if s > 0 else init24)
-                t_s, ov_s = fit_block_tuccil(U, init_s, steps=800,
-                                             lr=0.05)
+                # 分阶段 lr：粗调快收敛到邻域 + 精修（实测收敛率
+                # 8/8，单 lr 5/8）
+                t_s, ov_s = fit_block_tuccil(U, init_s, steps=300,
+                                             lr=0.2)
+                if ov_s >= 1 - 1e-7:
+                    t_s, ov_s = fit_block_tuccil(U, t_s, steps=500,
+                                                 lr=0.02)
                 if ov_s < 1 - 1e-7:
                     continue
                 n_s = n1q_of_tu(t_s)
