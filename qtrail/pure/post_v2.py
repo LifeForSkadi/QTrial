@@ -36,6 +36,11 @@ absorb_trailing_v2 = absorb_trailing
 
 
 # ---------------------------------------------------------------- B：1Q 优化
+def _rz_mat(alpha: float) -> np.ndarray:
+    """SU(2) 的 rz(α) 矩阵（K 因子相位扫描用，2026-11-13）。"""
+    return np.diag([np.exp(-1j * alpha / 2), np.exp(1j * alpha / 2)])
+
+
 def _oneq_matrix(name: str, params: tuple):
     """rz/sx/x/u3/u1 → 2×2 矩阵（平台约定：RZ(a)=diag(e^{−ia/2}, e^{ia/2})）。"""
     if name == "rz":
