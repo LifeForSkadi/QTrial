@@ -336,7 +336,13 @@ class PureMapper:
                                     circuit_id=circuit_id,
                                     temporal_alpha=self.cfg.graph.temporal_alpha)
         self._full_result = None
-        if self.pipeline in ("v5", "v6") and self.full_eval \
+        # 重电路布局降级（2026-11-13）：门数 > 2 万时跳过 RL 布局
+        # （GAT 多起点解码墙钟 40+ 分钟/条，hwb10 实测 RL≈平凡布局无
+        # 质量收益），直接用贪心图匹配布局——hwb 类 bench 超时的真凶
+        if len(circ.ops) > 20000:
+            from qtrail.pure.layout import greedy_graph_match_layout
+            pi = greedy_graph_match_layout(circ, self.spec)
+        elif self.pipeline in ("v5", "v6") and self.full_eval \
                 and circ.n <= self.full_eval_max_n:
             # 管线级联合选择（2026-11-11）：候选布局以本管线完整产物
             # 实测评分选优，胜者产物缓存复用（不重复路由）
