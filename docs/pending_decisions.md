@@ -590,3 +590,16 @@ fit_block_tuccil 实现并接入 A2（ov 守卫 + 失败回退）。块级 1Q
 的循环保护（合成产物标记跳过 merge 或循环内 Tuccil 不动点）。
 large 全量（修复前代码）已收尾；修复后（fold arr + Tuccil）全量
 待启动。
+
+### -5 补充十六（2026-11-11，第七次压缩恢复点）
+
+**压缩时状态**：
+- 全量重跑（修复后代码：fold arr 修复 + Tuccil 接入）运行中：
+  small 1 片 + medium 6 片 + large 4 片（seeds 16 + timeout 900）
+- Tuccil 循环保护实验结论（已提交）：循环内每轮 A2（1Q=1152）
+  最优；"循环无A2+最后Tuccil"（1301）与"最后追加A2"（无增量）
+  均无效——不动点吸收。下一方向 = Tuccil 输出段 merge 跳过标记。
+- 工作区其余改动（layout.py/optimal_route.py/bench 脚本等）为
+  早前遗留，与主线无关。
+- 恢复后行动：① 收全量数字出三层对比 ② 攻 Tuccil merge 跳过
+  ③ 若超越 RL+感知O3（三层）则更新 PPT/报告数字。
