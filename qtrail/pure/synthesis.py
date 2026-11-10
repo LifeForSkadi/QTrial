@@ -616,3 +616,60 @@ def _fit_3cx_params(k: np.ndarray) -> np.ndarray:
     result = t.detach().numpy()
     _FIT_CACHE[key] = result
     return result
+
+
+def fit_block_cz(U, init, steps=400, lr=0.1):
+    """cz 基 3-CZ 模板拟合（2026-11-13，qiskit tqp 输出结构对齐）：
+
+    U = (K1⊗K2)·CZ·(Rza⊗Rzb)·CZ·(Rzc⊗Rzd)·CZ·(K3⊗K4)
+    ——16 参数（4 个 SU(2) 欧拉角 + 4 个中间 rz）。中间旋转 rz-only
+    直接输出 1 门（3cx 模板的 ry 对翻译 5 门——1Q 冗余的机制根因）。
+    初值：K 因子 euler 角 + 中间 rz（KAK Cartan 系数的对角化近似）。
+    返回 (t, overlap)；overlap < 1-1e-7 由调用方拒绝。
+    """
+    import torch
+    Ut = torch.tensor(np.asarray(U, dtype=complex), dtype=torch.complex128)
+
+    def cmat(t):
+        def rz(a):
+            return torch.stack([torch.exp(-1j * a / 2),
+                                torch.exp(1j * a / 2)]).diag_embed()
+
+        def u3(a, b, c):
+            cc, ss = torch.cos(a / 2), torch.sin(a / 2)
+            return torch.stack([torch.stack([cc, -torch.exp(1j * c) * ss]),
+                                torch.stack([torch.exp(1j * b) * ss,
+                                             torch.exp(1j * (b + c)) * cc])])
+        cz = torch.tensor([[1., 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0],
+                           [0, 0, 0, -1]], dtype=torch.complex128)
+        C = torch.kron(u3(t[0], t[1], t[2]), u3(t[3], t[4], t[5]))
+        C = cz @ C
+        C = torch.kron(rz(t[6]), rz(t[7])) @ C
+        C = cz @ C
+        C = torch.kron(rz(t[8]), rz(t[9])) @ C
+        C = cz @ C
+        C = torch.kron(u3(t[10], t[11], t[12]),
+                       u3(t[13], t[14], t[15])) @ C
+        return C
+
+    t = torch.tensor(np.asarray(init, dtype=np.float64), dtype=torch.float64,
+                     requires_grad=True)
+    opt = torch.optim.Adam([t], lr=lr)
+    prev_loss = float("inf")
+    for _ in range(steps):
+        opt.zero_grad()
+        C = cmat(t)
+        # overlap 损失（相位无关）
+        ov = torch.abs(torch.sum(Ut.conj() * C))
+        loss = -ov
+        loss.backward()
+        opt.step()
+        with torch.no_grad():
+            cur = float(loss.detach())
+        if abs(prev_loss - cur) < 1e-15:
+            break
+        prev_loss = cur
+    with torch.no_grad():
+        C = cmat(t)
+        ov = float(torch.abs(torch.sum(Ut.conj() * C))) / 4.0
+    return t.detach().numpy(), ov
