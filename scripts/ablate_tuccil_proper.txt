@@ -1,0 +1,3 @@
+(A) 基线: 1Q=1286 cz=200 total=1486 depth=523 (30s)
+(B) 正确消融 final_tuccil=True: 1Q=1286 cz=200 total=1486 depth=523 (26s)
+(C) 正确消融 min3+tuccil: 1Q=1286 cz=200 total=1486 depth=523 (128s)

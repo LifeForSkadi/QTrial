@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """生产全路径权威验证（评委口径）：
-① 端到端语义：原线路嵌入初始布局（RL 布局）的 Statevector
-   == mapper 最终产物的 Statevector（同物理帧、N=max+1、闲置 |0⟩）
-② 真机合法性：产物门集 ⊆ {rz,sx,x,cz}、cz 端点相邻、无禁用比特、
-   比特 < spec.n、无残留 swap
+① 端到端语义（交付判据，审查 P2-3 修正口径）：原线路经
+   **final_layout** 嵌入 == mapper 最终产物（同压缩映射、闲置 |0⟩）
+   ——U(C')|0⟩ = Π_fin·U(C)|0⟩；初始布局 π 是路由器内部选择，
+   不进入交付判据
+② 真机合法性：产物门集 ⊆ {rz,sx,x,cz,measure}、cz 端点相邻、
+   无禁用比特、比特 < spec.n、无残留 swap、measure 位置合法
 """
 import sys
 import time
@@ -69,6 +71,13 @@ def check_legality(final_qc, spec):
             problems.append(f'idx={idx} cz 非相邻 {qs}')
     if not names <= {'rz', 'sx', 'x', 'cz', 'measure'}:
         problems.append(f'非平台门集: {names}')
+    # 审查 P1-1：measure 位置合法性（此前完全忽略）
+    for idx, m in enumerate(final_qc.measures):
+        q = int(m.qubits[0])
+        if q >= spec.n:
+            problems.append(f'measure{idx} 越界 {q}')
+        if q in disabled:
+            problems.append(f'measure{idx} 禁用比特 {q}')
     return problems
 
 
@@ -103,6 +112,19 @@ def main():
         probs = check_legality(final_qc, spec)
         print(f'  合法性: {"通过 ✓" if not probs else "失败 ✗ " + str(probs[:5])}',
               flush=True)
+        # ①b measure 语义（审查 P1-1）：逻辑 q 的测量必须落在
+        # fin[q]，经典比特一致
+        fin = res["final_layout"]
+        want = {(int(fin[int(m.qubits[0])]), tuple(m.cbits))
+                for m in circ.measures}
+        got = {(int(m.qubits[0]), tuple(m.cbits)) for m in final_qc.measures}
+        if want == got:
+            print(f'  measure 语义: 通过 ✓（{len(want)} 个）', flush=True)
+        elif not circ.measures:
+            print('  measure 语义: 无测量（跳过）', flush=True)
+        else:
+            print(f'  measure 语义: 失败 ✗ 期望{len(want)} 实际{len(got)} '
+                  f'差{want - got} 多{got - want}', flush=True)
 
         # ② 端到端语义（紧凑子空间法，2026-11-13）：最终产物只触碰
         # k 个不同物理比特——压缩映射到 0..k-1；原线路经

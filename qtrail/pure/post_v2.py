@@ -995,6 +995,11 @@ def noise_aware_relabel(circ: Circuit, spec, final_layout: dict,
                 for inst in ops:
                     inst.qubits = tuple(p_new if int(x) == p else int(x)
                                         for x in inst.qubits)
+                # 审查 P1-1 修复（2026-11-13）：measure 随标签置换
+                # 同步（此前只动 ops 与 final_layout，读回错位）
+                for m in circ.measures:
+                    if int(m.qubits[0]) == p:
+                        m.qubits = (p_new,)
                 # final_layout 数值与线路标签同步
                 for k, v in final_layout.items():
                     if v == p:
@@ -1068,6 +1073,9 @@ def learned_relabel(policy, spec, circ: Circuit, final_layout: dict,
             if new_qs != inst.qubits:
                 moved += 1
             inst.qubits = new_qs
+        # 审查 P1-1 修复（2026-11-13）：measure 随标签置换同步
+        for m in circ.measures:
+            m.qubits = (int(pi[int(m.qubits[0])]),)
         for k, v in final_layout.items():
             final_layout[k] = int(pi[int(v)])
         return moved
@@ -1176,7 +1184,14 @@ def fold_and_relink(circ: Circuit, spec, max_relink: int = 800,
                 # 置换仍发生（2026-11-13 真机合法性暴露的老 bug：
                 # 漏 arr 同步交换导致后续门映射错位、保留的 swap
                 # 端点经后续置换后可不相邻）
-                out.append(Inst("swap", (int(arr[a]), int(arr[b]))))
+                qa, qb = int(arr[a]), int(arr[b])
+                if spec.adj[qa, qb]:
+                    out.append(Inst("swap", (qa, qb)))
+                # 审查 P1-2 修复（2026-11-13）：保留的 swap 在 fold
+                # 坐标下可能非相邻（arr 端点 = 两内容的初始坐标，
+                # 可相距甚远）——非相邻则强制吸收：下游 2Q 分支
+                # 经 noise_aware_chain 保证合法（链化），保留 swap
+                # 则会在分解后产生非相邻 cz 破坏 I-合法。
                 arr[a], arr[b] = arr[b], arr[a]
                 i += 1
                 continue

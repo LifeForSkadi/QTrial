@@ -44,9 +44,14 @@ def _u3_to_rzsx_min(th: float, ph: float, la: float) -> list[tuple]:
     """B8：误差加权 1Q 合成（对标 qiskit euler_one_qubit_decomposer 的
     simplify + 多候选选择；2026-11-12）。
 
-    候选集：ZSXXZ（现有模板）/ ZXZXZ（X 基）/ 零角省略变体；
-    选择 = 门数最少（校准为逐比特单一误差率，门数即误差序），
-    平局优先 sx 版。θ≈0 与 θ≈π 的特例经 ZXZXZ 自然覆盖。
+    候选集：ZSXXZ（模板）+ 零角省略变体 + θ≈0 对角特例；
+    选择 = 门数最少（校准为逐比特单一误差率，门数即误差序）。
+
+    2026-11-13 修复：删除 ZXZXZ 候选——其推导恒等式错误：
+    Rz(φ+π)·X·Rz(θ+π)·X = Rz(φ−θ)（X·Rz·X = Rz(−θ)，两个 X 使
+    5 门族坍缩为对角）。{rz, x} 基下通用 SU(2) 需要 3 个 X（7 门），
+    2 个 X 的 ZXZXZ 族不是通用形式。旧实现靠平局规则（ZSXXZ 含
+    sx 优先）从未选中该候选——潜伏语义 bug，未造成实际影响。
     """
     def _mod2pi(a):
         return float(a % (2 * math.pi))
@@ -56,15 +61,7 @@ def _u3_to_rzsx_min(th: float, ph: float, la: float) -> list[tuple]:
                 and abs(_mod2pi(g[1][0])) < 1e-9)]
 
     cands = [_u3_to_rzsx(th, ph, la)]
-    # ZXZXZ（解析推导，2026-11-12）：
-    #   Ry(θ) = Rz(π/2)·Rx(θ)·Rz(−π/2)（共轭：Rz(π/2)X Rz(−π/2)=Y）
-    #   Rx(θ) = Rz(π/2)·X·Rz(θ+π)·X·Rz(π/2)（H·Rz(θ)·H，H=Rz(π/2)X Rz(π/2)）
-    #   ⇒ U3(θ,φ,λ) = Rz(φ+π)·X·Rz(θ+π)·X·Rz(λ)（模全局相位）
-    zxzxz = [("rz", (float(ph + math.pi),)), ("x", ()),
-             ("rz", (float(th + math.pi),)), ("x", ()),
-             ("rz", (float(la),))]
-    cands.append(zxzxz)
-    # 零角省略变体（两种候选都试）
+    # 零角省略变体
     for c in list(cands):
         cands.append(_strip_zero(c))
     # θ≈0 特例（对角）：单 rz
@@ -190,6 +187,13 @@ def absorb_trailing(circ: Circuit, final_layout: dict) -> int:
                 final_layout[logical] = b
             elif phys == b:
                 final_layout[logical] = a
+        # 审查 P1-1 修复（2026-11-13）：被吸收 swap 交换了 a/b 的
+        # 内容——物理标签上的 measure 必须同步跟随，否则读回错位
+        for m in circ.measures:
+            if int(m.qubits[0]) == a:
+                m.qubits = (b,)
+            elif int(m.qubits[0]) == b:
+                m.qubits = (a,)
     circ._deps = None
     return absorbed
 

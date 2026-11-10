@@ -319,56 +319,17 @@ def _init_3cx_params(k):
                      -alpha / 2, -alpha / 2, theta, theta])
 
 
-# 3-CX 中间 8 参数缓存：键 = Cartan 系数 k 的 3 位小数量化。
-# W(k) 的合成只依赖 k——相同 k 的块复用拟合好的中间参数，
-# Adam 从好初值出发步数大幅下降（耗时优化的核心，2026-11-09）。
-_FIT3CX_CACHE: dict = {}
-
-
 def _cached_3cx_params(k):
-    """k → 8 参数（缓存优先）。首次拟合 W(k) 后写入缓存。"""
-    import torch
-    key = tuple(round(float(x), 3) for x in k)
-    if key in _FIT3CX_CACHE:
-        return _FIT3CX_CACHE[key]
-    W = w_matrix(k)
-    Wt = torch.tensor(W, dtype=torch.complex128)
+    """k → 8 中间参数（近似解析初值，2026-11-13 起不拟合）。
 
-    def cmat(t):
-        def rz(a):
-            return torch.stack([torch.exp(-1j * a / 2),
-                                torch.exp(1j * a / 2)]).diag_embed()
-        def ry(a):
-            h = a / 2
-            return torch.stack([torch.stack([torch.cos(h), -torch.sin(h)]),
-                                torch.stack([torch.sin(h), torch.cos(h)])]).to(
-                                    torch.complex128)
-        cx = torch.tensor([[1., 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1],
-                           [0, 0, 1, 0]], dtype=torch.complex128)
-        C = cx
-        C = torch.kron(rz(t[0]), rz(t[1])) @ C
-        C = torch.kron(ry(t[2]), ry(t[3])) @ C
-        C = cx @ C
-        C = torch.kron(rz(t[4]), rz(t[5])) @ C
-        C = torch.kron(ry(t[6]), ry(t[7])) @ C
-        C = cx @ C
-        return C
-
-    t = torch.tensor(np.asarray(_init_3cx_params(k), dtype=np.float64),
-                     dtype=torch.float64, requires_grad=True)
-    opt = torch.optim.Adam([t], lr=0.1)
-    for step in range(400):
-        opt.zero_grad()
-        C = cmat(t)
-        ov = torch.vdot(C.reshape(-1), Wt.reshape(-1))
-        loss = 1.0 - (ov.abs() / 4.0) ** 2
-        loss.backward()
-        opt.step()
-        if loss.item() < 1e-14:
-            break
-    result = t.detach().numpy()
-    _FIT3CX_CACHE[key] = result
-    return result
+    原实现为 400 步 torch Adam 拟合 W(k)——实测（trotter4 超时
+    病根）：8 参数中间模板（无两侧 SU(2) 因子）在数学上无法精确
+    表示一般 W(k)（Vatan-Williams 分解需要两侧因子），拟合目标
+    不可能达成（随机 k 0/20 收敛、ov 0.73-0.9999）；且对下游
+    21 参数 fit_block_torch 的收敛零贡献（近似初值 vs 拟合初值
+    10/10 同收敛、ov=1.00）。直接返回解析近似初值。
+    """
+    return _init_3cx_params(np.asarray(k, dtype=np.float64))
 
 
 def fit_block_torch(U, init, steps=300, lr=0.1):
@@ -413,8 +374,13 @@ def fit_block_torch(U, init, steps=300, lr=0.1):
     opt = torch.optim.Adam([t], lr=lr)
     prev_loss = float("inf")
     stall = 0
-    max_steps = steps + 400  # 仍在改善的案例可超出基础预算（停滞检测兜底）
-    for step in range(max_steps):
+    # 2026-11-13 修复：原 max_steps = steps+400（"仍在改善"扩展）
+    # 导致 trotter4 类不收敛块白跑 400 步（59 块 × 700 步 × 12 轮
+    # = 超时病根）。改为：基础预算内未收敛者，仅当 loss < 1e-6
+    # （有收敛希望）才扩展 200 步；否则守卫必拒，直接放弃。
+    max_steps = steps
+    extended = False
+    for step in range(max_steps + 200):
         opt.zero_grad()
         C = cmat(t)
         ov = torch.vdot(C.reshape(-1), Ut.reshape(-1))
@@ -423,6 +389,11 @@ def fit_block_torch(U, init, steps=300, lr=0.1):
         opt.step()
         if loss.item() < 1e-12:
             break
+        if not extended and step >= max_steps - 1:
+            if loss.item() < 1e-6:
+                extended = True  # 有希望：续跑 200 步
+            else:
+                break  # 无希望：守卫必拒（1-1e-7），省时
         # 收敛停滞检测：连续 2 个窗口（100 步）改善 < 1e-7 才放弃
         # （容忍 Adam 的平台期；失败案例仍省 ~60% 时间）
         if step % 50 == 49:

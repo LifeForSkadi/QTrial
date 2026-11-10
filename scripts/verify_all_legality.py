@@ -98,6 +98,13 @@ def check_legality(final_qc, spec):
             problems.append(f"cz非相邻{qs}@{idx}")
     if not names <= {"rz", "sx", "x", "cz", "measure"}:
         problems.append(f"门集{names - {'rz', 'sx', 'x', 'cz', 'measure'}}")
+    # 审查 P1-1：measure 位置合法性（此前完全忽略）
+    for idx, m in enumerate(final_qc.measures):
+        q = int(m.qubits[0])
+        if q >= spec.n:
+            problems.append(f"measure{idx} 越界 {q}")
+        if q in disabled:
+            problems.append(f"measure{idx} 禁用比特 {q}")
     return problems
 
 
