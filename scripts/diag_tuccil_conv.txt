@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "<string>", line 28, in <module>
+    print(f'Tuccil 拟合调用={len(log)} 收敛(ov>=1-1e-7)={converged} 最大ov={max(log):.3e}', flush=True)
+                                                                            ~~~^^^^^
+ValueError: max() iterable argument is empty

@@ -1,0 +1,3 @@
+(A) 基线: 1Q=1294 cz=200 total=1494 depth=518 est_fid=1.3743e-04 (28s)
+(E) 终min3+Tuccil: 1Q=1397 cz=197 total=1594 depth=559 est_fid=8.7470e-05 (81s)
+  语义 fid=0.999999（应=1）

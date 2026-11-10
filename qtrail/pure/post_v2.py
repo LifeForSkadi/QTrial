@@ -721,7 +721,9 @@ def _block_unitary(ops_slice, pair):
 def collect_resynthesize_2q_blocks(circ: Circuit, spec,
                                     max_blocks: int | None = None,
                                     lock_emissions: bool = False,
-                                    use_tuccil: bool = False) -> Circuit:
+                                    use_tuccil: bool = False,
+                                    min_gate: int = 5,
+                                    gate_guard: bool = False) -> Circuit:
     """A2 组件：2Q 块收集 + 重合成（SWAP 消化）。
 
     流程：collect_2q_blocks 收集同比特对的连续 2Q 门块（含中间 1Q）→
@@ -742,7 +744,7 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
                                        _su2_euler, _cached_3cx_params)
 
     ops = circ.ops
-    blocks = collect_2q_blocks(circ, spec)
+    blocks = collect_2q_blocks(circ, spec, min_gate=min_gate)
     if max_blocks is not None:
         blocks = blocks[:max_blocks]
     if not blocks:
@@ -843,6 +845,14 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
                 tu_ok = True
         except Exception:
             pass
+        # 门数守卫（gate_guard，2026-11-13）：替换仅当平台化产物
+        # 严格少于原块——min_gate 放宽到 3 时，原块是已优化的
+        # 3-cz 块（~32 1Q），通用 12-u3 解（~40）必须被拒；Tuccil
+        # 8 因子（~20）才能通过。择优基准 = 原块而非通用解。
+        if gate_guard:
+            if len(_platformize_insts(new_insts)) >= len(
+                    _platformize_insts(list(ops[start:end]))):
+                continue
         ops[start:end] = new_insts
         if lock_emissions and tu_ok:
             for _inst in new_insts:
@@ -1426,7 +1436,12 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
                              cancel_cx: bool = True,
                              fixpoint: bool = True,
                              spec=None, resynth_every: int = 0,
-                             lock_emissions: bool = False) -> Circuit:
+                             lock_emissions: bool = False,
+                             final_sweep: bool = True,
+                             final_tuccil: bool = False,
+                             final_min_gate: int = 5,
+                             final_gate_guard: bool = False,
+                             max_rounds: int = 12) -> Circuit:
     """v5 平台基分解：v4 分解（cx→H-CZ-H、swap→3cx、u3→rzsx）+ 1Q 优化
     不动点循环（对标 qiskit Optimize1qGates + 交换消除）。
 
@@ -1449,7 +1464,7 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
     # 1Q 优化不动点循环：游程合并为 u3 → ZXZ 再合成 → rz 穿 cz 消解
     # → rz 合并 → H 块奇偶消解，重复至稳定（12 轮上限；实测 hwb10
     # 4→12 轮 1Q −19% 且 20 轮仍在缓降——提前退出兜底墙钟）
-    for rnd in range(12):
+    for rnd in range(max_rounds):
         changed = False
         _sort_segment_1q(out.ops)   # 段内重排：同比特游程相邻，
                                     # merge 才能吃跨比特段的长游程
@@ -1506,14 +1521,19 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
     if resynth_every > 0 and spec is not None:
         _cluster_cz_segments(out.ops)
         out = collect_resynthesize_2q_blocks(out, spec, max_blocks=60,
-                                             lock_emissions=lock_emissions)
+                                             lock_emissions=lock_emissions,
+                                             use_tuccil=final_tuccil,
+                                             min_gate=final_min_gate,
+                                             gate_guard=final_gate_guard)
         # 最终平台化 + 1Q 收尾（2026-11-13 修复）：最后 A2 输出的
         # u3/u1/cx 是非平台门——此前直接返回（口径虚高：u3 按 1 个
         # 1Q 门计误差，真机不可执行）。平台化后补 2 轮 1Q 吸收
         # （u3→rzsx 与 cx→H-CZ-H 的新生游程合并）。
+        # final_sweep=False（消融开关）：验证收尾是否为 Tuccil
+        # 吸收者。
         out.ops = _platformize_insts(out.ops)
         out._deps = None
-        for _ in range(2):
+        for _ in range(2 if final_sweep else 0):
             _sort_segment_1q(out.ops)
             _merge_sx_pairs(out.ops)
             slide_x_through_cz(out.ops, max_rounds=12)

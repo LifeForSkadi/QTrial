@@ -1,0 +1,4 @@
+(A) 基线: 1Q=1294 cz=200 total=1494 depth=518 est_fid=1.3743e-04 (32s)
+(F) 终min3+守卫+Tuccil: 1Q=1294 cz=200 total=1494 depth=518 est_fid=1.3743e-04 (93s)
+  语义 fid=1.000000（应=1）
+(G) 终min3+守卫无Tuccil: 1Q=1391 cz=197 total=1588 depth=553 est_fid=9.1283e-05 (33s)

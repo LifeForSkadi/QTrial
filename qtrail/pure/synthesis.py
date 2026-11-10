@@ -469,11 +469,13 @@ def block_params_to_insts(t, pair):
     return out
 
 
-def collect_2q_blocks(circ, spec):
+def collect_2q_blocks(circ, spec, min_gate: int = 5):
     """收集 2Q 块：同一比特对上的连续 2Q 门序列（中间允许 1Q 门）。
 
     返回 [(start, end, pair, n_swap, n_2q)]（ops 索引区间，含区间内所有门）。
-    只返回"合成有利"的块：3·s + g > 3（合成 3 CX 少于原展开 3s+g）。
+    只返回"合成有利"的块：3·s + g ≥ min_gate（循环内默认 5 = 至少
+    省 2 个 CX；最终单点可放宽到 3——3-cz 块虽不省 2Q 数，但 Tuccil
+    8 因子能压 1Q：块级 32→20）。
 
     tu_locked 冻结段（2026-11-13 Tuccil 循环保护）：tu_locked 标记的
     cz 是硬块边界——不作为块起点、不跨越扩展。机制：Tuccil 3-CZ
@@ -532,7 +534,8 @@ def collect_2q_blocks(circ, spec):
             n_2q = s + g
             # 收益门槛：合成 3 CX vs 原展开 3s+g，至少省 2 个 CX 才值得
             # （1.4s 拟合 vs 1 个 CX 的收益不划算；2026-11-09 耗时优化）
-            if n_2q >= 2 and 3 * s + g >= 5:
+            # min_gate 可放宽（最终单点：3-cz 块的 1Q 压缩窗口）
+            if n_2q >= 2 and 3 * s + g >= min_gate:
                 blocks.append((i, j, pair, s, n_2q))
             i = j
         else:
