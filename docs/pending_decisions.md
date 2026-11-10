@@ -687,3 +687,55 @@ N25 0.710x（twoq 120、depth 303）
 N36 0.766x（twoq 182、depth 402）
 ——twoq/深度全面反超，保真度差距 = 1Q 体积（768 vs 468，
 57 个 5 门游程 vs qiskit 1 个——结构差异，非合成差异）。
+
+### -5 补充二十（2026-11-13 凌晨 4:30，定稿状态）
+
+**最终生产配置（今晚全部改进定稿）**：
+1. A2 语义修复：外比特 1Q 硬块边界（c881af8）
+2. resynth_every=1（99e319a）
+3. Tuccil 默认关闭（92bc37c）
+4. 最终平台化 + 1Q 收尾（ed744f6）
+5. preslide 从 mapper 移除（297cf6f）
+6. 消融开关参数化：max_rounds/final_min_gate/final_gate_guard/
+   final_tuccil/final_sweep/lock_emissions/use_tuccil/min_gate——
+   生产默认全部为消融前行为
+
+**定稿达标（三线路，vs RL+感知O3）**：
+N16 0.821x（twoq 72 vs 105、depth 230 vs 246）
+N25 0.713x（twoq 120、depth 305）
+N36 0.775x（twoq 182、depth 409）
+——尚未超越；全量按用户纪律不启动。
+
+**第三批负结果（均已归档）**：
+- 误差积守卫：三线路全面变差（已回退）
+- 最终 A2 min_gate=3 ± Tuccil ± 门数守卫：全部无增益或劣化
+  ——不动点对块级再合成免疫
+- 通勤轮数 1→3：无差异
+- 循环轮数 12→24→36：无差异（12 轮内已收敛）
+- preslide：达标路由保真度有害（已移除）
+- Tuccil 最终单点：log 为空证明最终 A2 在 h16 上本就空转
+  （3-cz 块不满足 3s+g≥5）
+
+**下一阶段唯一主战场（1Q 结构差距 768 vs 468）**：
+- 合成侧已对齐（qiskit ZSXX 分解器对同一游程给同门数）
+- 差距在块结构：我们的 A2 12-u3 模板 vs qiskit Weil+simplify
+  （~18 1Q/块）；qiskit 的 94 个裸 sx 游程 = H 包裹吸收残迹
+  （rz 全被邻域 u3 吸收），我们的 rz 留在 4-5 门游程里
+- 待查方向：qiskit O3 在路由产物上的 pass 链顺序
+  （CommutativeCancellation→ConsolidateBlocks→Optimize1qGates）
+  与块合成的 cz 原生模板（免 cx→H-CZ-H 双重转换）
+
+### -5 补充二十一（2026-11-13 清晨 5:00，评委口径验证收官）
+
+**端到端权威验证（全部通过）**：
+- 紧凑子空间法（产物触碰比特压缩映射 + final_layout 嵌入原线路）：
+  h16 fid=1.000000（k=16）、h25 fid=1.000000（k=25）——
+  生产全路径（RL布局→16种子路由→post_route→折叠/重标记→
+  前置A2→分解）语义精确等价
+- 真机合法性三重扫描三层通过：h16/h25/qv34——门集⊆
+  {rz,sx,x,cz}、cz 全相邻、无禁用比特（21/26/34/89）、无 swap
+  残留、比特<105
+- 诚实边界：>26 比特线路的精确语义验证计算不可行（2^k 内存），
+  large 层 = 组件级保证 + 合法性全扫；评委口径见补充二十后续
+- 验证方法落盘：scripts/verify_e2e_production.py（紧凑子空间法
+  是 RL 布局散布（跨度 89）下唯一可行的端到端权威验证）
