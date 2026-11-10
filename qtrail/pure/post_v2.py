@@ -844,6 +844,36 @@ def commute_rz_through_cz(out_ops: list, max_rounds: int = 10) -> int:
     return moved_total
 
 
+def commute_rz_through_cz_rev(out_ops: list, max_rounds: int = 10) -> int:
+    """rz 向左穿过 cz 的反向推挤（正向 commute 的镜像，2026-11-13）。
+
+    rz 与 cz 对易（cz 对角）：把 cz 右侧的 rz 向左推进相邻段，使
+    cz 分隔的 1Q 段能从两侧收拢 rz 参与 u3 合成（对标 qiskit 通勤
+    收集的双向语义）。返回移动次数。
+    """
+    moved_total = 0
+    for _round in range(max_rounds):
+        changed = False
+        i = 0
+        n = len(out_ops)
+        while i < n - 1:
+            a, b = out_ops[i], out_ops[i + 1]
+            if (a.name == "cz" and b.name == "rz"
+                    and int(b.qubits[0]) in (int(a.qubits[0]),
+                                             int(a.qubits[1]))):
+                out_ops[i], out_ops[i + 1] = b, a   # rz 前移
+                changed = True
+                moved_total += 1
+                i += 2
+            else:
+                i += 1
+        _merge_adjacent_rz_ops(out_ops)
+        _cancel_adjacent_h(out_ops)
+        if not changed:
+            break
+    return moved_total
+
+
 def _merge_adjacent_rz_ops(out_ops):
     """相邻同比特 rz 角度合并（就地；不动点循环）。"""
     changed = True
@@ -1028,7 +1058,11 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
         merge_adjacent_rz(out)
         before = len(out.ops)
         slide_1q_through(out.ops)        # B7：1Q 跨门通勤聚拢
-        commute_rz_through_cz(out.ops)   # A2：可交换消解
+        # A2 双向段内聚集：每轮只穿 1 层 cz（rz 进入相邻段即被后续
+        # merge 合成消耗——qiskit 通勤收集语义；深层推挤会把 rz 与
+        # sx 分离、合成失效，实测 hwb10 1Q 更差）
+        commute_rz_through_cz(out.ops, max_rounds=1)
+        commute_rz_through_cz_rev(out.ops, max_rounds=1)
         _absorb_h(out.ops)               # B5：H·rz·H → rx（H 吸收）
         _cancel_cz_global(out.ops)       # B6+：cz 全局对消（全线路通行段）
         _cancel_adjacent_h(out.ops)
