@@ -484,3 +484,26 @@ qiskit 吸收为 rz-only。已试：u3 链合并、u1 穿 cx 控制位合并、
 （强制段内 1Q 保持 cz 基最优形态），大工程。
 最终小批量：heisenberg N16 0.760x / N25 0.640x / N36 0.732x
 （未超越，全量冻结维持）。
+
+### -5 补充七（2026-11-13 凌晨五）：链穿 1Q 语义正确版 + PCG——dtc 差距攻克
+
+**dtc 类 2x 差距的最终机制**（对拍+源码+多轮调试定位）：
+1. qiskit 的链合并（SabreDAG Single 前驱语义）穿过中间 1Q 门——
+   我们的紧邻版在 dtc 类（1Q 密集）链全空、front 与 qiskit 分歧
+   （第 0 步对拍实锤）
+2. PCG64Mcg（rand_pcg 0.3：XSL-RR 128/64 + Lemire 拒绝采样）对齐
+   qiskit rust 平局随机
+
+**语义正确的实现**（heisenberg N16 全电路 fold_only 恒等式验证
+fid=1.0、17 测试全绿）：
+- 链 = 同对 2Q 的 Single 前驱指针链
+- 链区间内 deps⊆链集的 1Q 门并入链按 qasm 序输出（owner 标记；
+  独立执行跑到链尾后破坏顺序——四轮调试定位）
+- last_2q 保持链头（链外后继 deps=链头；owner 靠区间位置限制）
+- 调试教训：区间版链吞交错门、owner 重复输出、last_2q 更新断
+  succ 链——三个连环 bug 均经 fold_only 恒等式验证捕获
+
+**纯路由 mixed20（语义正确）**：hwb10 19553（qiskit 20004）、
+gf2^7 152（174）、dtc_100 1470（1395）、barenco 79（89）、
+adder_8 197（205）——四线路反超、dtc 差 5%。
+端到端小批量（heisenberg 三条）后台跑（bzabbvyn8）。
