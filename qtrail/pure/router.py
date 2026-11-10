@@ -202,6 +202,9 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     for i in range(m):
         if chain_prev[i] != -1:
             continue          # 链成员：并入链头，不参与依赖结构
+                              # （last_2q 保持链头——链外后继 deps
+                              # =链头，链头执行后满足；1Q 门的
+                              # owner 判定靠区间位置限制）
         for q in ops[i].qubits:
             j = last_2q.get(int(q))
             if j is not None:
@@ -209,6 +212,23 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         if len(ops[i].qubits) == 2:
             for q in ops[i].qubits:
                 last_2q[int(q)] = i
+    # 链区间内的 1Q 门并入链（qiskit 附着语义）：deps ⊆ 本链 2Q 集
+    chain_1q_owner = [-1] * m
+    for head in range(m):
+        if chain_prev[head] != -1 or chain_next[head] == -1:
+            continue
+        chain_set = set()
+        j = head
+        while j != -1:
+            chain_set.add(j)
+            j = chain_next[j]
+        tail = head
+        while chain_next[tail] != -1:
+            tail = chain_next[tail]
+        for k in range(head + 1, tail + 1):
+            if len(ops[k].qubits) == 1 and deps[k] <= chain_set:
+                chain_1q_owner[k] = head
+
     succ = [set() for _ in range(m)]
     for i in range(m):
         for j in deps[i]:
@@ -217,7 +237,8 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     pos = {k: int(v) for k, v in layout.items()}
     inv = {v: k for k, v in pos.items()}
     frontier = {i for i in range(m)
-                if not deps[i] and chain_prev[i] == -1}
+                if not deps[i] and chain_prev[i] == -1
+                and chain_1q_owner[i] == -1}
     executed = set()
     allowed = set(frontier)
     # 扩展集增量维护：仅当 deps[s]⊆allowed 由假变真（某依赖执行）或
@@ -302,21 +323,34 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
             for i in sorted(exec_now):
                 frontier.discard(i)
                 executed.add(i)
-                # 链头执行 = 整链执行（qiskit 链节点语义：链成员与链头
-                # 同比特对 ⇒ 同时可路由）
+                # 链头执行 = 整链按序输出（含链区间内并入的
+                # 1Q 门——qiskit indices 附着语义）
+                chain_set = set()
                 j = i
                 while j != -1:
-                    inst = ops[j]
-                    if inst.nq == 1:
-                        out.append(Inst(inst.name, (pos[inst.qubits[0]],),
-                                        inst.params))
-                    else:
-                        p1, p2 = pos[inst.qubits[0]], pos[inst.qubits[1]]
-                        out.append(Inst(inst.name, (p1, p2), inst.params))
+                    chain_set.add(j)
                     j = chain_next[j]
+                tail = i
+                while chain_next[tail] != -1:
+                    tail = chain_next[tail]
+                for k in range(i, tail + 1):
+                    inst = ops[k]
+                    if k == i or k in chain_set or chain_1q_owner[k] == i:
+                        if k != i:
+                            executed.add(k)
+                        if inst.nq == 1:
+                            out.append(Inst(inst.name,
+                                            (pos[inst.qubits[0]],),
+                                            inst.params))
+                        else:
+                            p1 = pos[inst.qubits[0]]
+                            p2 = pos[inst.qubits[1]]
+                            out.append(Inst(inst.name, (p1, p2),
+                                            inst.params))
+
                 for s in succ[i]:
                     deps[s].discard(i)
-                    if not deps[s]:
+                    if not deps[s] and chain_1q_owner[s] == -1:
                         frontier.add(s)
                         allowed.add(s)
                         ext.discard(s)
