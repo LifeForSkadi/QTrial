@@ -277,7 +277,8 @@ class PureMapper:
             layout = {i: int(pi[i]) for i in range(graph.n)}
             routed, swaps, final_layout = sabre_route(
                 circ, self.spec, layout, seed=self.seed, lam_ms=self.lam_ms,
-                trials=max(1, self.routing_seeds))
+                trials=max(1, self.routing_seeds),
+                mix_rollout=(circ.n > 10))
             removed = 0
             if self.use_post:
                 routed, removed = post_route(routed, final_layout,
@@ -357,7 +358,8 @@ class PureMapper:
         else:
             routed, swaps, final_layout = sabre_route(
                 circ, self.spec, layout, seed=self.seed, lam_ms=self.lam_ms,
-                trials=max(1, self.routing_seeds))
+                trials=max(1, self.routing_seeds),
+                mix_rollout=(circ.n > 10))
             removed = 0
             if self.use_post:
                 # 硬件连通性感知后处理（2026-11-09）：产物 2Q 门全部落在

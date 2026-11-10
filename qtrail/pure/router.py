@@ -57,7 +57,8 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 decay_inc: float = 0.0, decay_reset: int = 5,
                 scorer=None, scorer_sample: bool = False,
                 scorer_temp: float = 1.0, scorer_stats: dict | None = None,
-                max_swaps: int = 100000, trials: int = 1):
+                max_swaps: int = 100000, trials: int = 1,
+                mix_rollout: bool = False):
     """返回 (routed: Circuit[物理空间], swap_count, final_layout)。
 
     w_ext=None → 0.5/spec.n（qiskit decay 口径）；decay_pen 为历史遗留
@@ -105,8 +106,15 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                       trials=1)
 
         def _trial(k):
+            kw = kwargs
+            if mix_rollout and k % 2 == 1:
+                # 混合机制（2026-11-13）：奇号种子用 rollout 前瞻
+                # （dtc 类线路有效：前向模拟预见 basic 看不到的信息，
+                # 实测 5656→4488）；偶号用 lookahead 层（hwb/gf2^7 类
+                # 有效：知情平局裁决）。取 swap 最少者——两机制互补。
+                kw = dict(kwargs, lookahead_w=0.5, w_layer=0.0)
             return sabre_route(circ, spec, dict(layout), seed=seed + k,
-                               **kwargs)
+                               **kw)
 
         with ThreadPoolExecutor(max_workers=min(trials, 8)) as ex:
             results = list(ex.map(_trial, range(trials)))
