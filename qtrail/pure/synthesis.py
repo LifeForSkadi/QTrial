@@ -492,11 +492,12 @@ def collect_2q_blocks(circ, spec):
             j = i + 1
             s = 1 if inst.name == "swap" else 0
             g = 0 if inst.name == "swap" else 1
-            # 扩展块：同对 2Q 门（中间允许 1Q）
+            # 扩展块：同对 2Q 门（中间允许任意长度的 1Q 序列——2026-11-13
+            # 修复：此前只支持"单个 1Q 门"跨越，u3 展开的 5-7 连续 1Q
+            # 序列切断收集，heisenberg 类 12cx/对 的块全空、A2 零效果）
             while j < n:
                 nj = ops[j]
-                if nj.nq == 1 and j + 1 < n and ops[j + 1].nq == 2:
-                    # 1Q 门间隔可跨过（块收集 qiskit 语义）
+                if nj.nq == 1:
                     j += 1
                     continue
                 if nj.nq == 2 and nj.name in ("cx", "cz", "swap"):

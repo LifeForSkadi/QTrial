@@ -336,6 +336,157 @@ def _cancel_cz_global(out_ops: list) -> int:
     return removed
 
 
+def _cluster_cz_segments(out_ops: list) -> int:
+    """同对 cz 对易聚拢（2026-11-13，qiskit O1 同款机制）。
+
+    cz 与 cz/rz 全对易、与不相交 sx/x 对易——在通行段内把同对 cz
+    重排成连续块（非 cz 门保持相对顺序）。聚拢后 A2 块收集能吃到
+    完整 12-cz 块（heisenberg 类）——qiskit 的 O1 产物即此形态
+    （(3,4)×12 连续）→ tqp 一步合成 3 cz。返回移动次数。
+    """
+    moved = 0
+    out = []
+    seg = []
+    seg_cz_bits = set()
+    seg_sx_bits = set()
+
+    def flush():
+        nonlocal moved
+        if not seg:
+            return
+        # 段内 cz 按对聚类（cz 全对易，重排合法）：记录每对出现顺序
+        order = []
+        seen = set()
+        for inst in seg:
+            if inst.name == "cz":
+                key = tuple(sorted(inst.qubits))
+                if key not in seen:
+                    seen.add(key)
+                    order.append(key)
+        groups = {k: [] for k in order}
+        noncz = []
+        for inst in seg:
+            if inst.name == "cz":
+                groups[tuple(sorted(inst.qubits))].append(inst)
+            else:
+                noncz.append(inst)
+        # 重建：非 cz 门原位（相对序保持），cz 分组连续置于段尾
+        out.extend(noncz)
+        for k in order:
+            out.extend(groups[k])
+        seg.clear()
+        seg_cz_bits.clear()
+        seg_sx_bits.clear()
+
+    for inst in out_ops:
+        if inst.name in ("sx", "x", "h") and inst.nq == 1 \
+                and int(inst.qubits[0]) in seg_cz_bits:
+            flush()
+            out.append(inst)
+        elif inst.name in ("cz", "rz"):
+            if inst.name == "cz" and (
+                    set(int(q) for q in inst.qubits) & seg_sx_bits):
+                flush()
+            seg.append(inst)
+            if inst.name == "cz":
+                seg_cz_bits.update(int(q) for q in inst.qubits)
+        elif inst.name in ("sx", "x") and inst.nq == 1 \
+                and int(inst.qubits[0]) not in seg_cz_bits:
+            seg.append(inst)
+            seg_sx_bits.add(int(inst.qubits[0]))
+        else:
+            flush()
+            out.append(inst)
+    flush()
+    moved = len(out_ops)
+    out_ops[:] = out
+    return moved - len(out)
+
+
+def _sort_segment_1q(out_ops: list) -> int:
+    """段内 1Q 通勤重排（2026-11-13）：cz 之间的 1Q 段按比特稳定分组
+    （不同比特的 1Q 门对易、同比特相对顺序保持）。分组后 sx 对相邻
+    可合并为 x（再穿 cz 打通聚拢）。返回重排次数。
+    """
+    moved = 0
+    seg = []
+    out = []
+
+    def flush():
+        nonlocal moved
+        if not seg:
+            return
+        grouped = sorted(seg, key=lambda inst: int(inst.qubits[0]))
+        if grouped != seg:
+            moved += 1
+        out.extend(grouped)
+        seg.clear()
+
+    for inst in out_ops:
+        if inst.name == "cz":
+            flush()
+            out.append(inst)
+        else:
+            seg.append(inst)
+    flush()
+    if moved:
+        out_ops[:] = out
+    return moved
+
+
+def _merge_sx_pairs(out_ops: list) -> int:
+    """sx·sx → x（精确恒等式，2026-11-13）：1Q 段 {rz,rz,sx,sx} 合成
+    后残留的 sx 对合并为 x——x 可穿 cz（带对面 rz(π)），打通聚拢
+    通道（heisenberg 类 222 个 {rz2,sx2} 段阻挡同对 cz 聚拢的根因）。
+    """
+    removed = 0
+    i = 0
+    n = len(out_ops)
+    while i < n - 1:
+        a, b = out_ops[i], out_ops[i + 1]
+        if a.name == "sx" and b.name == "sx" \
+                and a.qubits == b.qubits:
+            out_ops[i] = Inst("x", a.qubits)
+            del out_ops[i + 1]
+            n -= 1
+            removed += 1
+        i += 1
+    return removed
+
+
+def slide_x_through_cz(out_ops: list, max_rounds: int = 4) -> int:
+    """x 穿 cz（2026-11-13，qiskit CommutationChecker 标准规则）：
+    X(q) 在 cz(q,r) 上 → 交换 + 对面插入 rz(π)。恒等式
+    X_a·CZ = CZ·X_a·rz_b(π)·i（全局相位 i，fidelity 口径无影响）。
+    返回移动次数。
+    """
+    moved = 0
+    for _ in range(max_rounds):
+        changed = False
+        i = 0
+        n = len(out_ops)
+        while i < n - 1:
+            a, b = out_ops[i], out_ops[i + 1]
+            if (a.name == "x" and b.name == "cz" and a.nq == 1
+                    and int(a.qubits[0]) in (int(b.qubits[0]),
+                                             int(b.qubits[1]))):
+                q = int(a.qubits[0])
+                other = (int(b.qubits[1]) if q == int(b.qubits[0])
+                         else int(b.qubits[0]))
+                out_ops[i], out_ops[i + 1] = b, a
+                out_ops.insert(i + 2, Inst("rz", (other,),
+                                           (math.pi,)))
+                n += 1
+                moved += 1
+                changed = True
+                i += 3
+            else:
+                i += 1
+        if not changed:
+            break
+    return moved
+
+
 def _cancel_adjacent_h(out_ops: list) -> None:
     """消除相邻 H 块（rz(π/2),sx,rz(π/2) 三元组）的恒等对：H²=I 精确成立。
 
@@ -1020,7 +1171,8 @@ def commute_cancel_cx(out_ops: list, window: int = 12,
 # ------------------------------------------------------------ v5 分解入口
 def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
                              cancel_cx: bool = True,
-                             fixpoint: bool = True) -> Circuit:
+                             fixpoint: bool = True,
+                             spec=None, resynth_every: int = 0) -> Circuit:
     """v5 平台基分解：v4 分解（cx→H-CZ-H、swap→3cx、u3→rzsx）+ 1Q 优化
     不动点循环（对标 qiskit Optimize1qGates + 交换消除）。
 
@@ -1043,7 +1195,7 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
     # 1Q 优化不动点循环：游程合并为 u3 → ZXZ 再合成 → rz 穿 cz 消解
     # → rz 合并 → H 块奇偶消解，重复至稳定（12 轮上限；实测 hwb10
     # 4→12 轮 1Q −19% 且 20 轮仍在缓降——提前退出兜底墙钟）
-    for _ in range(12):
+    for rnd in range(12):
         changed = False
         if merge_1q_runs(out.ops) > 0:
             new_ops = []
@@ -1068,6 +1220,24 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
         _cancel_adjacent_h(out.ops)
         _strip_identity_1q(out.ops)      # B4：恒等门移除
         changed = changed or len(out.ops) != before
+        # A2 块重合成进循环（2026-11-13，对标 qiskit O2 的
+        # TwoQubitPeepholeOptimization + FixedPoint 迭代）：合成产生
+        # 新 1Q → 下轮 1Q 优化移走 → 2Q 聚拢 → 更大块再合成。
+        # 每 resynth_every 轮一次（成本控制：torch 拟合 ~10s/块）
+        if (resynth_every > 0 and spec is not None
+                and (rnd + 1) % resynth_every == 0):
+            # 段内 1Q 重排 → sx 对合并 → x 穿 cz 打通段边界 →
+            # 同对 cz 聚拢（qiskit O1 同款机制）→ A2 吃完整 12-cz 块
+            _sort_segment_1q(out.ops)
+            _merge_sx_pairs(out.ops)
+            slide_x_through_cz(out.ops)
+            _cluster_cz_segments(out.ops)
+            out2 = collect_resynthesize_2q_blocks(out, spec, max_blocks=40)
+            # A2 合成器输出 cx/u1 非平台门——立即再翻译（否则循环
+            # 早停后残留非平台门，2026-11-13）
+            out2 = _v4_decompose(out2, expand_swap=expand_swap)
+            changed = changed or len(out2.ops) != len(out.ops)
+            out = out2
         if not changed:
             break
     return out
