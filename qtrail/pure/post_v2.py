@@ -56,6 +56,33 @@ def _oneq_matrix(name: str, params: tuple):
     raise ValueError(name)
 
 
+def _platformize_insts(insts: list) -> list:
+    """合成输出的 u3/u1/cx → rz/sx/cz 平台门（2026-11-13）。
+
+    直接最优分解（u3→B8 合成器最少门、u1→rz、cx→H-CZ-H），替代
+    v4 再翻译的双重分解冗余——qiskit tqp 合成输出即平台门
+    （块内 11 门 vs 我们的 28 门）。
+    """
+    out = []
+    for inst in insts:
+        if inst.name == "u3":
+            for g, p in _u3_to_rzsx_min(*inst.params):
+                out.append(Inst(g, inst.qubits, p))
+        elif inst.name == "u1":
+            out.append(Inst("rz", inst.qubits, inst.params))
+        elif inst.name == "cx":
+            a, b = inst.qubits
+            h = [Inst("rz", (b,), (H_GATE[0],)),
+                 Inst("sx", (b,)),
+                 Inst("rz", (b,), (H_GATE[0],))]
+            out.extend(h)
+            out.append(Inst("cz", (a, b)))
+            out.extend(h)
+        else:
+            out.append(inst)
+    return out
+
+
 def _merge_u3_chain(insts: list) -> list:
     """合成输出的 u3/u1 链合并（2026-11-13）：同比特连续的 u3/u1 →
     矩阵乘积合成单 u3（精确、全局相位剥离）；u1（rz）穿过 cx 控制位
@@ -1295,7 +1322,10 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
             out2 = collect_resynthesize_2q_blocks(out, spec, max_blocks=40)
             # A2 合成器输出 cx/u1 非平台门——立即再翻译（否则循环
             # 早停后残留非平台门，2026-11-13）
-            out2 = _v4_decompose(out2, expand_swap=expand_swap)
+            # 直接平台化（2026-11-13）：合成输出 u3/u1/cx → rz/sx/cz
+            # 最优分解，替代 v4 再翻译的双重分解冗余
+            out2.ops = _platformize_insts(out2.ops)
+            out2._deps = None
             changed = changed or len(out2.ops) != len(out.ops)
             out = out2
         if not changed:
