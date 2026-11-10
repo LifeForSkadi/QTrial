@@ -577,7 +577,7 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
         U = U / np.linalg.det(U) ** 0.25  # SU(4) 规范化
         # 恒等块（2Q 门相互抵消，如 cx·cx、swap·swap）：整体删除
         ov_i = abs(np.trace(U)) / 4.0
-        if ov_i > 1 - 1e-9:
+        if ov_i > 1 - 1e-7:
             del ops[start:end]
             continue
         try:
@@ -594,7 +594,7 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
             t, ov = fit_block_torch(U, init)
         except Exception:
             continue
-        if ov < 1 - 1e-9:
+        if ov < 1 - 1e-7:
             continue
         new_insts = block_params_to_insts(t, pair)
         ops[start:end] = new_insts
@@ -642,7 +642,7 @@ def collect_resynthesize_2q_blocks_full(circ: Circuit, spec,
             continue
         U = U / np.linalg.det(U) ** 0.25  # SU(4) 规范化
         # 恒等块：整体删除
-        if abs(np.trace(U)) / 4 > 1 - 1e-9:
+        if abs(np.trace(U)) / 4 > 1 - 1e-7:
             del ops[start:end]
             n_replaced += 1
             continue
@@ -660,7 +660,7 @@ def collect_resynthesize_2q_blocks_full(circ: Circuit, spec,
             t, ov = fit_block_torch(U, init)
         except Exception:
             continue
-        if ov < 1 - 1e-9:
+        if ov < 1 - 1e-7:
             continue
         new_insts = block_params_to_insts(t, pair)
         # 误差加权守卫：合成产物（3 CX + 12 1Q）的 2Q 误差积必须
