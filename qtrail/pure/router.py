@@ -154,9 +154,27 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     # Circuit.deps() 是"同比特最后触碰"链（1Q 门参与），导致 lookahead
     # 层 matching 性被破坏——hwb10 上 L1 层 6429 门（16 比特）、层分量
     # ~76 压过 basic ~3-7、层失效（平凡布局 swap 28828 vs qiskit 20004）。
+    # 链合并（2026-11-13，qiskit SabreDAG 链节点语义）：qasm 紧邻且
+    # 同比特对的连续 2Q 门合并为链——链头执行即整链执行（同比特对 ⇒
+    # 同时可路由），链成员不进入依赖/层结构。逐门处理会让 lookahead
+    # 第 1 层沦为 front 的同比特复制（层分量对平局候选常数、wl=50
+    # 零效果），qiskit 的层 = 下一批链（新比特对位置）——dtc 类 2x
+    # 差距的机制（dag.rs prev.indices.push 定位）。
+    chain_next = [-1] * m
+    chain_prev = [-1] * m
+    for i in range(m - 1):
+        a, b = ops[i], ops[i + 1]
+        if (len(a.qubits) == 2 and len(b.qubits) == 2
+                and a.name != "swap" and b.name != "swap"
+                and set(a.qubits) == set(b.qubits)):
+            chain_next[i] = i + 1
+            chain_prev[i + 1] = i
+
     deps = [set() for _ in range(m)]
     last_2q = {}
     for i in range(m):
+        if chain_prev[i] != -1:
+            continue          # 链成员：并入链头，不参与依赖结构
         for q in ops[i].qubits:
             j = last_2q.get(int(q))
             if j is not None:
@@ -171,7 +189,8 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
 
     pos = {k: int(v) for k, v in layout.items()}
     inv = {v: k for k, v in pos.items()}
-    frontier = {i for i in range(m) if not deps[i]}
+    frontier = {i for i in range(m)
+                if not deps[i] and chain_prev[i] == -1}
     executed = set()
     allowed = set(frontier)
     # 扩展集增量维护：仅当 deps[s]⊆allowed 由假变真（某依赖执行）或
@@ -190,6 +209,7 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     for i in frontier:
         for s in succ[i]:
             if s not in frontier and deps[s] <= allowed \
+                    and chain_prev[s] == -1 \
                     and len(ops[s].qubits) == 2:
                 ext.add(s)
             if len(ops[i].qubits) == 2:
@@ -197,6 +217,7 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     if w_layer != 0.0:
         for s in range(m):
             if (s not in frontier and s not in executed
+                    and chain_prev[s] == -1
                     and len(ops[s].qubits) == 2
                     and cnt_af[s] == n2q_deps[s]):
                 l1.add(s)
@@ -254,13 +275,18 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
             for i in sorted(exec_now):
                 frontier.discard(i)
                 executed.add(i)
-                inst = ops[i]
-                if inst.nq == 1:
-                    out.append(Inst(inst.name, (pos[inst.qubits[0]],),
-                                    inst.params))
-                else:
-                    p1, p2 = pos[inst.qubits[0]], pos[inst.qubits[1]]
-                    out.append(Inst(inst.name, (p1, p2), inst.params))
+                # 链头执行 = 整链执行（qiskit 链节点语义：链成员与链头
+                # 同比特对 ⇒ 同时可路由）
+                j = i
+                while j != -1:
+                    inst = ops[j]
+                    if inst.nq == 1:
+                        out.append(Inst(inst.name, (pos[inst.qubits[0]],),
+                                        inst.params))
+                    else:
+                        p1, p2 = pos[inst.qubits[0]], pos[inst.qubits[1]]
+                        out.append(Inst(inst.name, (p1, p2), inst.params))
+                    j = chain_next[j]
                 for s in succ[i]:
                     deps[s].discard(i)
                     if not deps[s]:
@@ -271,6 +297,7 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                         # s 进入前沿 → 其后继的 deps⊆allowed 可能此刻才成立
                         for t in succ[s]:
                             if t not in frontier and deps[t] <= allowed \
+                                    and chain_prev[t] == -1 \
                                     and len(ops[t].qubits) == 2:
                                 ext.add(t)
                             # s 进入 allowed∪frontier → lookahead 层计数
@@ -278,6 +305,7 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                             if w_layer != 0.0 and len(ops[s].qubits) == 2:
                                 cnt_af[t] += 1
                                 if (t not in frontier and t not in executed
+                                        and chain_prev[t] == -1
                                         and len(ops[t].qubits) == 2
                                         and cnt_af[t] == n2q_deps[t]):
                                     l1.add(t)
