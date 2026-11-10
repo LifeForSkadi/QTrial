@@ -1502,11 +1502,36 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
             out = out2
         if not changed:
             break
-    # 最后一轮 A2（2026-11-13 Tuccil 循环保护）：循环的 1Q 优化
-    # 会把 Tuccil 紧凑输出重新膨胀（不动点吸收），故在循环收敛后
-    # 最后跑一轮 A2——产物不再进循环，块级 −66% 收益释放
+    # 最后一轮 A2（2026-11-13）：循环收敛后把剩余同对块再合成一次
     if resynth_every > 0 and spec is not None:
         _cluster_cz_segments(out.ops)
         out = collect_resynthesize_2q_blocks(out, spec, max_blocks=60,
                                              lock_emissions=lock_emissions)
+        # 最终平台化 + 1Q 收尾（2026-11-13 修复）：最后 A2 输出的
+        # u3/u1/cx 是非平台门——此前直接返回（口径虚高：u3 按 1 个
+        # 1Q 门计误差，真机不可执行）。平台化后补 2 轮 1Q 吸收
+        # （u3→rzsx 与 cx→H-CZ-H 的新生游程合并）。
+        out.ops = _platformize_insts(out.ops)
+        out._deps = None
+        for _ in range(2):
+            _sort_segment_1q(out.ops)
+            _merge_sx_pairs(out.ops)
+            slide_x_through_cz(out.ops, max_rounds=12)
+            if merge_1q_runs(out.ops) > 0:
+                new_ops = []
+                for inst in out.ops:
+                    if inst.name == "u3":
+                        for gname, gparams in _u3_to_rzsx_min(*inst.params):
+                            new_ops.append(Inst(gname, inst.qubits, gparams))
+                    else:
+                        new_ops.append(inst)
+                out.ops = new_ops
+            merge_adjacent_rz(out)
+            slide_1q_through(out.ops)
+            commute_rz_through_cz(out.ops, max_rounds=1)
+            commute_rz_through_cz_rev(out.ops, max_rounds=1)
+            _absorb_h(out.ops)
+            _cancel_cz_global(out.ops)
+            _cancel_adjacent_h(out.ops)
+            _strip_identity_1q(out.ops)
     return out
