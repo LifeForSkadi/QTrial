@@ -56,6 +56,64 @@ def _oneq_matrix(name: str, params: tuple):
     raise ValueError(name)
 
 
+def _to_cz_basis(insts: list) -> list:
+    """3cx 合成序列 → 3cz 基（2026-11-13，qiskit tqp 输出结构的对齐）。
+
+    cx = H_b·cz·H_b 展开，H_b 与相邻 1Q 矩阵乘合并；cz 之间的段
+    按比特合并成 u3（对角时输出 rz）——中间旋转在 cz 基为 rz-only
+    （H·ry(θ)·H = rz(θ) 到全局相位，数值验证），每块 8 个 u3 的
+    参数冗余降为 4 u3 + 4 rz（qiskit 每块 11 门 vs 我们 28 门）。
+    """
+    # 1) 展开 cx → H_b, cz, H_b
+    flat = []
+    for inst in insts:
+        if inst.name == "cx":
+            a, b = inst.qubits
+            h = [Inst("rz", (b,), (H_GATE[0],)),
+                 Inst("sx", (b,)),
+                 Inst("rz", (b,), (H_GATE[0],))]
+            flat.extend(h)
+            flat.append(Inst("cz", (a, b)))
+            flat.extend(h)
+        else:
+            flat.append(inst)
+    # 2) 按 cz 切段，段内按比特矩阵乘合并（对角 → rz，否则 u3）
+    out = []
+    seg = []
+
+    def flush():
+        nonlocal seg
+        if not seg:
+            return
+        by_q = {}
+        for inst in seg:
+            q = inst.qubits[0]
+            by_q.setdefault(q, np.eye(2, dtype=complex))
+            by_q[q] = _oneq_matrix(inst.name, inst.params) @ by_q[q]
+        for q, U in by_q.items():
+            U = U / np.sqrt(np.linalg.det(U))
+            if abs(np.trace(U)) / 2 > 1 - 1e-9:
+                continue  # 恒等
+            th, ph, la = _mat_to_u3_params(U)
+            # 对角检测（rz-only）
+            off = abs(U[0, 1])
+            if off < 1e-9:
+                ang = np.angle(U[0, 0] / U[1, 1])
+                out.append(Inst("rz", (q,), (float(ang),)))
+            else:
+                out.append(Inst("u3", (q,), (th, ph, la)))
+        seg = []
+
+    for inst in flat:
+        if inst.name == "cz":
+            flush()
+            out.append(inst)
+        else:
+            seg.append(inst)
+    flush()
+    return out
+
+
 def _platformize_insts(insts: list) -> list:
     """合成输出的 u3/u1/cx → rz/sx/cz 平台门（2026-11-13）。
 
@@ -678,10 +736,9 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
         if ov < 1 - 1e-7:
             continue
         new_insts = block_params_to_insts(t, pair)
-        # 合成输出的 u3/u1 链合并（2026-11-13）：同比特连续的
-        # u3/u1 → 矩阵乘积合成单 u3——8 u3 + 4 u1 的参数冗余
-        # 砍半（heisenberg 每段 8.4→5 级 1Q 门）
-        new_insts = _merge_u3_chain(new_insts)
+        # cz 基变换（2026-11-13）：H 吸收 + 段内合并，中间旋转变
+        # rz-only——qiskit tqp 输出结构（每块 11 门 vs 28 门）
+        new_insts = _to_cz_basis(new_insts)
         ops[start:end] = new_insts
     circ._deps = None
     return circ
@@ -1284,6 +1341,8 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
         changed = False
         _sort_segment_1q(out.ops)   # 段内重排：同比特游程相邻，
                                     # merge 才能吃跨比特段的长游程
+        _merge_sx_pairs(out.ops)    # sx·sx = x（每轮消化）
+        slide_x_through_cz(out.ops, max_rounds=4)  # x 穿 cz 打通段边界
         if merge_1q_runs(out.ops) > 0:
             new_ops = []
             for inst in out.ops:
