@@ -598,6 +598,34 @@ def _merge_sx_pairs(out_ops: list) -> int:
     return removed
 
 
+def _preslide_1q(out_ops: list, max_rounds: int = 8) -> int:
+    """预收集解碎片（2026-11-13）：任意 1Q 门（u1/u3/rz/sx/x）滑过
+    比特不相交的门——同对 2Q 游程中外比特 1Q 门被移出，块收集才能
+    吃到完整游程（qiskit O3 CommutativeCancellation 的等价前置；
+    Collect2qBlocks 的 "uninterrupted" 语义下必须先行解碎片）。
+
+    单调右滑、同比特相对序保持（不相交对易为精确恒等）。
+    """
+    moved_total = 0
+    for _ in range(max_rounds):
+        moved = 0
+        i = 0
+        n = len(out_ops)
+        while i < n - 1:
+            a, b = out_ops[i], out_ops[i + 1]
+            if (a.nq == 1 and a.name in ("u1", "u3", "rz", "sx", "x")
+                    and int(a.qubits[0]) not in b.qubits):
+                out_ops[i], out_ops[i + 1] = b, a
+                moved += 1
+                i += 1
+            else:
+                i += 1
+        moved_total += moved
+        if moved == 0:
+            break
+    return moved_total
+
+
 def slide_x_through_cz(out_ops: list, max_rounds: int = 4) -> int:
     """x 穿 cz（2026-11-13，qiskit CommutationChecker 标准规则）：
     X(q) 在 cz(q,r) 上 → 交换 + 对面插入 rz(π)。恒等式
@@ -692,7 +720,8 @@ def _block_unitary(ops_slice, pair):
 
 def collect_resynthesize_2q_blocks(circ: Circuit, spec,
                                     max_blocks: int | None = None,
-                                    lock_emissions: bool = False) -> Circuit:
+                                    lock_emissions: bool = False,
+                                    use_tuccil: bool = False) -> Circuit:
     """A2 组件：2Q 块收集 + 重合成（SWAP 消化）。
 
     流程：collect_2q_blocks 收集同比特对的连续 2Q 门块（含中间 1Q）→
@@ -747,6 +776,9 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
             continue
         new_insts = block_params_to_insts(t, pair)
         tu_ok = False
+        if not use_tuccil:
+            ops[start:end] = new_insts
+            continue
         # Tuccil 3-CZ 模板精修（2026-11-13）：3cx 解转 cz 基初值 →
         # 多起点拟合选最少门（8 因子可对角化——1Q 差距 1.66x 的
         # 模板级修复：3cx 固定 12 单位 vs Tuccil 对角解 ~6 单位）

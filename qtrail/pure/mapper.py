@@ -197,8 +197,8 @@ class PureMapper:
         TwoQubitPeephole 的实际机制）。
         """
         from qtrail.pure.post_v2 import (
-            collect_resynthesize_2q_blocks, collect_resynthesize_2q_blocks_full,
-            decompose_to_platform_v2,
+            _preslide_1q, collect_resynthesize_2q_blocks,
+            collect_resynthesize_2q_blocks_full, decompose_to_platform_v2,
             fold_and_relink, fold_only, learned_relabel, noise_aware_relabel)
         routed_v4 = routed.copy()
         fin_v4 = dict(final_layout)
@@ -249,6 +249,9 @@ class PureMapper:
                             self.cfg, dev=self.dev, seed=self.seed,
                             noise_lambda=noise_lambda)
         if with_resynth:
+            # 解碎片（2026-11-13）：外比特 1Q 门滑出同对 2Q 游程，
+            # 否则 "uninterrupted" 块收集被 u1/u3 打碎、前置 A2 空转
+            _preslide_1q(routed.ops)
             if full_resynth:
                 routed = collect_resynthesize_2q_blocks_full(routed, self.spec)
             else:
