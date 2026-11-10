@@ -39,3 +39,30 @@
 - ZX 演算（成本/收益不匹配，qiskit 也没有）
 - MCTS 路由（cqlib 范式，我们的 RL 路线已定）
 - 完整相位多项式合成（等 H 吸收/rz 推送先兑现再评估）
+
+## 相位多项式侦察（2026-11-13，数学先行阶段）
+
+恒等式验证脚本 scripts/verify_phase_poly_identities.py（31/32 通过，
+唯一失败 = 预期反例 P7：sx 穿 cz 不封闭）。验证过程中纠正 2 个
+教科书记忆错误（P5 组：H 目标位共轭 CNOT → CZ 而非方向翻转；
+H 控制位穿 cz → CNOT 方向翻转）。
+
+11. **全局 rz 重排（cz 域相位多项式）**：rz 与 cz 对易（A2 ✓）但
+    rz 不能穿 sx（A11 反例）。heisenberg N16 实测：理想跨段 rz
+    合并 389→363（仅 −26 门，3.5%）——rz 组数 363 被 sx 密度锁死。
+    预注册判据 +≥5% 不达标。**结论：否决，不实现。**
+12. **H 行走（H 沿 cz 骨架传播复制）**：H_b·cz(a,b) = cx(a,b)·H_b
+    （B1 ✓）——H 穿 cz 后骨架变 CNOT，回 cz 基需展开 +2 H，无
+    cz 域封闭行走结构。**结论：数学否决。**
+13. **4 门 u3 模板**：{rz,sx} 的 4 门族 rz·sx·rz·sx = 2 参数
+    （α,β）< 3，非通用（ZSXXZ 5 门是最优通用）。qiskit 的 4 门
+    游程 = 3 门游程 + 残留 rz，非模板。**结论：数学否决。**
+14. **A2 块合成器 = 1Q 膨胀源**（假设被否证）：A2 on 790→736
+    （−54 门）——A2 是减 1Q 的。差距根源在上游 fold+relink 产物
+    （790 1Q / 82 cz = 9.6 密度 vs qiskit 3.9）。
+
+**定位结论（diag_block_density/diag_a2_ablate/diag_gap_decomp）**：
+1Q 差距主体 = 不动点循环把 H 块混入 u3 合成（A2 off 产物 H 块 = 0，
+循环消化了全部 H）——qiskit 的 pass 顺序 = H 对消先行、
+1Q 合成后行（CommutativeCancellation 在 Optimize1qGates 前）。
+下一攻坚 = **H 优先消解**（预注册中，实验 scripts/diag_h_first.py）。
