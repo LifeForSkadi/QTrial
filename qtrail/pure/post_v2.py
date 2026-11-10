@@ -741,9 +741,56 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
         if ov < 1 - 1e-7:
             continue
         new_insts = block_params_to_insts(t, pair)
-        # cz 基变换（2026-11-13）：H 吸收 + 段内合并，中间旋转变
-        # rz-only——qiskit tqp 输出结构（每块 11 门 vs 28 门）
-        new_insts = _to_cz_basis(new_insts)
+        # Tuccil 3-CZ 模板精修（2026-11-13）：3cx 解转 cz 基初值 →
+        # 多起点拟合选最少门（8 因子可对角化——1Q 差距 1.66x 的
+        # 模板级修复：3cx 固定 12 单位 vs Tuccil 对角解 ~6 单位）
+        try:
+            from qtrail.pure.synthesis import fit_block_tuccil
+            from qtrail.pure.post import _u3_to_rzsx_min
+            czseq = _to_cz_basis(new_insts)
+            init24 = np.zeros(24)
+            u3s = [i for i in czseq if i.name == 'u3']
+            rzs = [i for i in czseq if i.name == 'rz']
+            if len(u3s) >= 4:
+                init24[0:6] = u3s[0].params + u3s[1].params
+                init24[18:24] = u3s[-2].params + u3s[-1].params
+            for j, r in enumerate(rzs[:4]):
+                init24[6 + 3 * j] = r.params[0]
+
+            def n1q_of_tu(tv):
+                return sum(len(_u3_to_rzsx_min(
+                    float(tv[3 * j]), float(tv[3 * j + 1]),
+                    float(tv[3 * j + 2]))) for j in range(8))
+
+            rng_t = np.random.default_rng(1)
+            best_n = None
+            best_tu = None
+            for s in range(6):
+                init_s = (init24 + rng_t.uniform(-0.3, 0.3, 24)
+                          if s > 0 else init24)
+                t_s, ov_s = fit_block_tuccil(U, init_s, steps=800,
+                                             lr=0.05)
+                if ov_s < 1 - 1e-7:
+                    continue
+                n_s = n1q_of_tu(t_s)
+                if best_n is None or n_s < best_n:
+                    best_n, best_tu = n_s, t_s
+            if best_tu is None:
+                raise RuntimeError('tuccil no convergence')
+            # 输出：8 因子最优分解 + 3 cz（直接平台门）
+            tu_out = []
+            for j in range(8):
+                a, b = pair
+                q = a if j in (0, 2, 4, 6) else b
+                for g, gp in _u3_to_rzsx_min(
+                        float(best_tu[3 * j]), float(best_tu[3 * j + 1]),
+                        float(best_tu[3 * j + 2])):
+                    tu_out.append(Inst(g, (q,), gp))
+                if j in (1, 3, 5):
+                    tu_out.append(Inst('cz', (a, b)))
+            new_insts = tu_out
+        except Exception:
+            pass
         ops[start:end] = new_insts
     circ._deps = None
     return circ

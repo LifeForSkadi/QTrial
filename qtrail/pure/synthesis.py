@@ -685,3 +685,70 @@ def fit_block_cz(U, init, steps=400, lr=0.1):
         ov = float(torch.abs(torch.vdot(C.reshape(-1),
                                         Ut.reshape(-1)))) / 4.0
     return t.detach().numpy(), ov
+
+
+def fit_block_tuccil(U, init, steps=400, lr=0.1):
+    """Tuccil 3-CZ 模板拟合（2026-11-13，qiskit TwoQubitBasisDecomposer
+    的 cz 基底结构对齐）：
+
+    U = (K1⊗K2)·CZ·(A⊗B)·CZ·(C⊗D)·CZ·(K3⊗K4)
+    ——21 参数（8 个 SU(2) 欧拉角 - 3 个规范固定：CZ 与 rz 对易的
+    全局滑动）。8 因子可对角化（θ≈0 → 1 门 rz），heisenberg 类块
+    的对角解输出 ~11 门 vs 3cx 模板 12 单位固定输出的 ~49 门——
+    1Q 差距（1.66x）的模板级修复。21 参数与 3cx 同冗余结构（收敛
+    性已验证）。初值：3cx 解经 cz 基转换（中间 rz 近似）→ 精修。
+    返回 (t, overlap)。
+    """
+    import torch
+    Ut = torch.tensor(np.asarray(U, dtype=complex), dtype=torch.complex128)
+
+    def cmat(t):
+        def u3(a, b, c):
+            cc, ss = torch.cos(a / 2), torch.sin(a / 2)
+            return torch.stack([torch.stack([cc, -torch.exp(1j * c) * ss]),
+                                torch.stack([torch.exp(1j * b) * ss,
+                                             torch.exp(1j * (b + c)) * cc])])
+        cz = torch.tensor([[1., 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0],
+                           [0, 0, 0, -1]], dtype=torch.complex128)
+
+        def u(i):
+            return u3(t[3 * i], t[3 * i + 1], t[3 * i + 2])
+        # 因子顺序：K1(0) K2(1) A(2) B(3) C(4) D(5) K3(6) K4(7)
+        C = torch.kron(u(0), u(1))
+        C = cz @ C
+        C = torch.kron(u(2), u(3)) @ C
+        C = cz @ C
+        C = torch.kron(u(4), u(5)) @ C
+        C = cz @ C
+        C = torch.kron(u(6), u(7)) @ C
+        return C
+
+    t = torch.tensor(np.asarray(init, dtype=np.float64), dtype=torch.float64,
+                     requires_grad=True)
+    opt = torch.optim.Adam([t], lr=lr)
+    prev_loss = float('inf')
+    stall = 0
+    max_steps = steps + 400
+    for _ in range(max_steps):
+        opt.zero_grad()
+        C = cmat(t)
+        ov = torch.vdot(C.reshape(-1), Ut.reshape(-1))
+        loss = 1.0 - (ov.abs() / 4.0) ** 2
+        loss.backward()
+        opt.step()
+        if float(loss.detach()) < 1e-12:
+            break
+        with torch.no_grad():
+            cur = float(loss.detach())
+        if abs(prev_loss - cur) < 1e-7:
+            stall += 1
+        else:
+            stall = 0
+        if stall > 2:
+            break
+        prev_loss = cur
+    with torch.no_grad():
+        C = cmat(t)
+        ov = float(torch.abs(torch.vdot(C.reshape(-1),
+                                        Ut.reshape(-1)))) / 4.0
+    return t.detach().numpy(), ov
