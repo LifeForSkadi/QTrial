@@ -621,9 +621,11 @@ def _fit_3cx_params(k: np.ndarray) -> np.ndarray:
 def fit_block_cz(U, init, steps=400, lr=0.1):
     """cz 基 3-CZ 模板拟合（2026-11-13，qiskit tqp 输出结构对齐）：
 
-    U = (K1⊗K2)·CZ·(Rza⊗Rzb)·CZ·(Rzc⊗Rzd)·CZ·(K3⊗K4)
-    ——16 参数（4 个 SU(2) 欧拉角 + 4 个中间 rz）。中间旋转 rz-only
-    直接输出 1 门（3cx 模板的 ry 对翻译 5 门——1Q 冗余的机制根因）。
+    U = (K1⊗K2)·CZ·(Rza⊗Rzb)·CZ·(Rzc⊗I)·CZ·(K3⊗K4)
+    ——15 参数（4 个 SU(2) 欧拉角 + 3 个中间 rz）。Rzd 经规范固定
+    删除：CZ 与 rz 对易 ⇒ rz 可在 CZ 间滑移吸收，16 参数中的 1 个
+    是规范自由度（SU(4) 15 维）——平坦方向使 Adam 卡局部最优
+    （ov 0.695/0.804），15 参数一一对应消除平坦方向。
     初值：K 因子 euler 角 + 中间 rz（KAK Cartan 系数的对角化近似）。
     返回 (t, overlap)；overlap < 1-1e-7 由调用方拒绝。
     """
@@ -642,34 +644,44 @@ def fit_block_cz(U, init, steps=400, lr=0.1):
                                              torch.exp(1j * (b + c)) * cc])])
         cz = torch.tensor([[1., 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0],
                            [0, 0, 0, -1]], dtype=torch.complex128)
+        # t: K1(0:3) K2(3:6) Rza(6) Rzb(7) Rzc(8) K3(9:12) K4(12:15)
         C = torch.kron(u3(t[0], t[1], t[2]), u3(t[3], t[4], t[5]))
         C = cz @ C
         C = torch.kron(rz(t[6]), rz(t[7])) @ C
         C = cz @ C
-        C = torch.kron(rz(t[8]), rz(t[9])) @ C
+        C = torch.kron(rz(t[8]), rz(torch.zeros_like(t[8]))) @ C
         C = cz @ C
-        C = torch.kron(u3(t[10], t[11], t[12]),
-                       u3(t[13], t[14], t[15])) @ C
+        C = torch.kron(u3(t[9], t[10], t[11]),
+                       u3(t[12], t[13], t[14])) @ C
         return C
 
     t = torch.tensor(np.asarray(init, dtype=np.float64), dtype=torch.float64,
                      requires_grad=True)
     opt = torch.optim.Adam([t], lr=lr)
-    prev_loss = float("inf")
-    for _ in range(steps):
+    prev_loss = float('inf')
+    stall = 0
+    max_steps = steps + 400
+    for _ in range(max_steps):
         opt.zero_grad()
         C = cmat(t)
-        # overlap 损失（相位无关）
-        ov = torch.abs(torch.sum(Ut.conj() * C))
-        loss = -ov
+        ov = torch.vdot(C.reshape(-1), Ut.reshape(-1))
+        loss = 1.0 - (ov.abs() / 4.0) ** 2   # 模方损失（凸化，
+                                             # 与 fit_block_torch 一致）
         loss.backward()
         opt.step()
+        if float(loss.detach()) < 1e-12:
+            break
         with torch.no_grad():
             cur = float(loss.detach())
-        if abs(prev_loss - cur) < 1e-15:
+        if abs(prev_loss - cur) < 1e-7:
+            stall += 1
+        else:
+            stall = 0
+        if stall > 2:
             break
         prev_loss = cur
     with torch.no_grad():
         C = cmat(t)
-        ov = float(torch.abs(torch.sum(Ut.conj() * C))) / 4.0
+        ov = float(torch.abs(torch.vdot(C.reshape(-1),
+                                        Ut.reshape(-1)))) / 4.0
     return t.detach().numpy(), ov
