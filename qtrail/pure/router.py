@@ -148,7 +148,22 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
 
     # 防御性拷贝：路由过程就地消耗依赖集；mapper 候选评分会对同一 circ
     # 对象反复调用本函数，拷贝保证每次调用看到完整 DAG（2026-08-22 修复）。
-    deps = [set(d) for d in circ.deps()]
+    # 依赖重建（2026-11-13，qiskit SabreDAG 精确语义）：每门的依赖 =
+    # 同比特的【前一个 2Q 门】（1Q 门附着在 2Q 门上，不构成依赖、不被
+    # 依赖——qiskit 的 try_route 对 1Q 门总立即成功）。原始
+    # Circuit.deps() 是"同比特最后触碰"链（1Q 门参与），导致 lookahead
+    # 层 matching 性被破坏——hwb10 上 L1 层 6429 门（16 比特）、层分量
+    # ~76 压过 basic ~3-7、层失效（平凡布局 swap 28828 vs qiskit 20004）。
+    deps = [set() for _ in range(m)]
+    last_2q = {}
+    for i in range(m):
+        for q in ops[i].qubits:
+            j = last_2q.get(int(q))
+            if j is not None:
+                deps[i].add(j)
+        if len(ops[i].qubits) == 2:
+            for q in ops[i].qubits:
+                last_2q[int(q)] = i
     succ = [set() for _ in range(m)]
     for i in range(m):
         for j in deps[i]:
