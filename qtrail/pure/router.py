@@ -58,7 +58,7 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 scorer=None, scorer_sample: bool = False,
                 scorer_temp: float = 1.0, scorer_stats: dict | None = None,
                 max_swaps: int = 100000, trials: int = 1,
-                mix_rollout: bool = False):
+                mix_rollout: bool = False, pcg_tie: bool = True):
     """返回 (routed: Circuit[物理空间], swap_count, final_layout)。
 
     w_ext=None → 0.5/spec.n（qiskit decay 口径）；decay_pen 为历史遗留
@@ -103,7 +103,7 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                       noise_w=noise_w, noise_tie=noise_tie, scorer=scorer,
                       scorer_sample=scorer_sample, scorer_temp=scorer_temp,
                       scorer_stats=scorer_stats, max_swaps=max_swaps,
-                      trials=1)
+                      trials=1, pcg_tie=pcg_tie)
 
         def _trial(k):
             kw = kwargs
@@ -122,6 +122,10 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         return best
 
     rng = np.random.default_rng(seed)
+    rng_pcg = None
+    if pcg_tie:
+        from qtrail.pure.pcg import Pcg64Mcg
+        rng_pcg = Pcg64Mcg(seed)
     ops = circ.ops
     m = len(ops)
 
@@ -170,13 +174,28 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     # 差距的机制（dag.rs prev.indices.push 定位）。
     chain_next = [-1] * m
     chain_prev = [-1] * m
-    for i in range(m - 1):
-        a, b = ops[i], ops[i + 1]
-        if (len(a.qubits) == 2 and len(b.qubits) == 2
-                and a.name != "swap" and b.name != "swap"
-                and set(a.qubits) == set(b.qubits)):
-            chain_next[i] = i + 1
-            chain_prev[i + 1] = i
+    # 链判定（2026-11-13 二修）：qiskit Single 前驱语义——2Q 门 g2 的
+    # 两个比特的"前一个 2Q"相同且同对 ⇒ 并入链（**穿过中间 1Q 门**，
+    # 此前仅 qasm 紧邻——dtc 类 1Q 门密集、链全空，第 0 步 front 与
+    # qiskit 分歧的对拍实锤）。链合并后链头执行即整链执行（同对 ⇒
+    # 同时可路由）。
+    for i in range(m):
+        if len(ops[i].qubits) != 2 or ops[i].name == "swap":
+            continue
+        preds = []
+        for q in ops[i].qubits:
+            j = None
+            for k in range(i - 1, -1, -1):
+                if len(ops[k].qubits) == 2 and ops[k].name != "swap" \
+                        and int(q) in (int(ops[k].qubits[0]),
+                                       int(ops[k].qubits[1])):
+                    j = k
+                    break
+            preds.append(j)
+        if (preds[0] is not None and preds[0] == preds[1]
+                and set(ops[preds[0]].qubits) == set(ops[i].qubits)):
+            chain_next[preds[0]] = i
+            chain_prev[i] = preds[0]
 
     deps = [set() for _ in range(m)]
     last_2q = {}
@@ -557,7 +576,10 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 errs = edge_err[ea_[tied] * spec.n + eb_[tied]]
                 ebest = errs.min()
                 tied = tied[errs <= ebest + 1e-12]
-            pick = int(tied[rng.integers(0, len(tied))])
+            if pcg_tie and rng_pcg is not None:
+                pick = int(tied[rng_pcg.gen_range(len(tied))])
+            else:
+                pick = int(tied[rng.integers(0, len(tied))])
         a, b = int(ea_[pick]), int(eb_[pick])
         out.append(Inst("swap", (a, b)))
         swap_count += 1
