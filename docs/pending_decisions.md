@@ -756,3 +756,36 @@ routing_seeds=16、timeout 900s），产物做合法性三重扫描（门集/
   （v4 快路径/贪心布局）
 - RL 布局落在禁用比特（21/26/34/89）→ 策略动作空间掩码
 - v4 回退路径的相邻性 → post_route 已保证，验证确认
+
+### -5 补充二十三（2026-11-13，审查循环完成 + 攻坚转向）
+
+**git 状态**：最新提交 6a1d4cd（审查修复链+速度修复）；生产代码
+= 该提交内容（H·U·H 实验改动已回退，未提交实验代码）。
+
+**审查代理（研究员+评委）结论**：P0 无；31 项恒等式 0 失败；
+P1×2（measure 脱节、fold swap 相邻性）已修并验证；P2×3 已修
+（文档口径/误差界/正确消融）；报告 docs/review_findings_20261113.md。
+
+**速度修复**：删 3cx 中间拟合（数学不可能+零贡献）1367→615s；
+fit_block_torch 步数 700→300+条件扩展 →500s。trotter4 不再超时。
+
+**负结果台账（docs/negative_results_ledger.md，9 条）统一理论**：
+1Q 不动点循环无势函数——局部单调减门仍可把不动点推向更差
+（误差守卫三连差、preslide 三连差、H·U·H 混合 N16+1.6%/N25-4.5%）。
+**战略结论：局部重写路线已穷尽；下一步 = 全局变换（相位多项式）。**
+
+**进行中**：
+1. 合法性主跑（verify_all_legality.py 11 分片，462/587+ 推进；
+   6 条 timeout 补跑中——hwb11/12、heisenberg_N49、vqe_uccsd_n28、
+   graphstate_25、trotter4，修复后代码）
+2. 相位多项式机制：下一攻坚目标（先数学后实现，预注册判据）
+
+**性能基线（诚实口径）**：small 中位 0.979x（胜率 24%）、medium
+中位 0.596x（胜率 20%，qv/hwb 大败 Δ-95~-181 = 1Q 体积差距、
+qaoa/adder 大胜 100x 级 = 噪声感知重标记）。1Q 差距 768 vs 468
+已定位：qiskit 每 cz 一个裸 sx（H 半块被邻域吸收）+ 我们的
+12-u3 块模板 1Q 密度高。
+
+**验证体系**：紧凑子空间法（verify_e2e_production.py，fin 嵌入
+交付判据）+ 合法性三重扫描 + measure 检查；审查代理可再次调用
+（Agent general-purpose，按 docs/post_pipeline_correctness.md 框架）。
