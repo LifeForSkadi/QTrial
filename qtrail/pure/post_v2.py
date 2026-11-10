@@ -1011,8 +1011,9 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
     if not fixpoint:
         return out
     # 1Q 优化不动点循环：游程合并为 u3 → ZXZ 再合成 → rz 穿 cz 消解
-    # → rz 合并 → H 块奇偶消解，重复至稳定（4 轮上限）
-    for _ in range(4):
+    # → rz 合并 → H 块奇偶消解，重复至稳定（12 轮上限；实测 hwb10
+    # 4→12 轮 1Q −19% 且 20 轮仍在缓降——提前退出兜底墙钟）
+    for _ in range(12):
         changed = False
         if merge_1q_runs(out.ops) > 0:
             new_ops = []
