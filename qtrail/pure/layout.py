@@ -77,3 +77,82 @@ def _device_snake(spec: DeviceSpec) -> list[int]:
         path.append(nbrs[0])
         visited.add(nbrs[0])
     return path
+
+
+def greedy_graph_match_layout(circ, spec,
+                              rng: np.random.Generator | None = None):
+    """贪心图匹配布局（2026-11-13，qiskit DenseLayout/SabreLayout 初始化
+    同款语义的自主实现）：电路 2Q 交互图按门数加权贪心嵌入设备耦合图。
+
+    从最重交互边开始：两节点未放 → 占一条设备可用边；单节点已放 →
+    放其设备邻接位置；得分 = 已放置邻居的交互权重 × [邻接指示]。
+    只使用非禁用比特。返回 pi（pi[logical] = physical）。
+    """
+    n = circ.n
+    weights = {}
+    for inst in circ.ops:
+        if inst.nq == 2 and inst.name != "swap":
+            a, b = int(inst.qubits[0]), int(inst.qubits[1])
+            e = (a, b) if a < b else (b, a)
+            weights[e] = weights.get(e, 0) + 1
+
+    disabled = set(spec.disabled_qubits)
+    usable = [q for q in range(spec.n) if q not in disabled]
+    pi = np.full(n, -1, dtype=np.int64)
+    used = set()
+
+    def score_phys(p, v):
+        """逻辑 v 放物理 p 的得分：已放置逻辑邻居的交互权重×邻接。"""
+        s = 0.0
+        for (a, b), w in weights.items():
+            u = b if a == v else (a if b == v else None)
+            if u is not None and pi[u] >= 0 and spec.adj[p, int(pi[u])]:
+                s += w
+        return s
+
+    def best_phys(v):
+        cand = [q for q in usable if q not in used]
+        if not cand:
+            return None
+        return int(max(cand, key=lambda q: score_phys(q, v)))
+
+    for (a, b), _w in sorted(weights.items(),
+                             key=lambda x: -x[1]):
+        if pi[a] >= 0 and pi[b] >= 0:
+            continue
+        if pi[a] < 0 and pi[b] < 0:
+            # 找设备上一条可用边（优先与已放置部分邻接）
+            best = None
+            best_s = -1.0
+            for p in usable:
+                if p in used:
+                    continue
+                for q in usable:
+                    if q in used or q <= p or not spec.adj[p, q]:
+                        continue
+                    s = score_phys(p, a) + score_phys(q, b)
+                    if s > best_s:
+                        best_s = s
+                        best = (p, q)
+            if best is None:
+                best = (best_phys(a), best_phys(b))
+                if best[0] == best[1]:
+                    break
+            pi[a], pi[b] = int(best[0]), int(best[1])
+            used.update(best)
+        else:
+            v = a if pi[a] < 0 else b
+            p = best_phys(v)
+            if p is None:
+                continue
+            pi[v] = p
+            used.add(p)
+
+    for v in range(n):
+        if pi[v] < 0:
+            p = best_phys(v)
+            if p is None:
+                raise ValueError("设备可用比特不足")
+            pi[v] = p
+            used.add(p)
+    return pi

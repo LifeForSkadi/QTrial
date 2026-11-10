@@ -185,3 +185,15 @@
 {"circuit": "bp_wstate_n76_wstate_n76_transpiled", "n": 76, "qt_swaps": 285, "qt_depth": 1574, "qt_twoq_depth": 339, "qt_fidelity": 1.3984235151026714e-08, "qt_wall": 3.15}
 {"circuit": "bv_100", "n": 100, "qt_swaps": 92, "qt_depth": 887, "qt_twoq_depth": 241, "qt_fidelity": 0.0009998949934814255, "qt_wall": 3.45}
 {"circuit": "dj_100", "n": 100, "qt_swaps": 124, "qt_depth": 1652, "qt_twoq_depth": 456, "qt_fidelity": 0.00018909870168257775, "qt_wall": 3.79}
+{"circuit": "dj_105", "n": 105, "qt_swaps": 149, "qt_depth": 1973, "qt_twoq_depth": 551, "qt_fidelity": 2.1464285075763095e-05, "qt_wall": 3.7}
+{"circuit": "ghz_100", "n": 100, "qt_swaps": 99, "qt_depth": 1198, "qt_twoq_depth": 354, "qt_fidelity": 0.001186473676011998, "qt_wall": 3.55}
+{"circuit": "ghz_105", "n": 105, "qt_swaps": 99, "qt_depth": 1218, "qt_twoq_depth": 359, "qt_fidelity": 0.0008135133140047059, "qt_wall": 4.21}
+{"circuit": "graphstate_100", "n": 100, "qt_swaps": 313, "qt_depth": 484, "qt_twoq_depth": 130, "qt_fidelity": 9.513595317929652e-08, "qt_wall": 3.97}
+{"circuit": "graphstate_105", "n": 105, "qt_swaps": 339, "qt_depth": 550, "qt_twoq_depth": 153, "qt_fidelity": 4.7502243898875115e-08, "qt_wall": 4.29}
+{"circuit": "qaoa_100", "n": 100, "qt_swaps": 41316, "qt_depth": 103004, "qt_twoq_depth": 27958, "qt_fidelity": 4.4e-323, "qt_wall": 123.95}
+{"circuit": "qaoa_105", "n": 105, "qt_swaps": 47784, "qt_depth": 114675, "qt_twoq_depth": 31050, "qt_fidelity": 4.4e-323, "qt_wall": 166.98}
+{"circuit": "qft_100", "n": 100, "qt_swaps": 9196, "qt_depth": 48106, "qt_twoq_depth": 13186, "qt_fidelity": 2.734877643690871e-222, "qt_wall": 25.45}
+{"circuit": "qft_105", "n": 105, "qt_swaps": 8334, "qt_depth": 42556, "qt_twoq_depth": 11420, "qt_fidelity": 1.9335023552918114e-234, "qt_wall": 30.67}
+{"circuit": "qftentangled_100", "n": 100, "qt_swaps": 9265, "qt_depth": 38203, "qt_twoq_depth": 10387, "qt_fidelity": 1.8538999823940926e-218, "qt_wall": 26.15}
+{"circuit": "wstate_100", "n": 100, "qt_swaps": 756, "qt_depth": 5365, "qt_twoq_depth": 1541, "qt_fidelity": 2.4612256935415977e-18, "qt_wall": 4.83}
+{"circuit": "wstate_105", "n": 105, "qt_swaps": 756, "qt_depth": 5360, "qt_twoq_depth": 1541, "qt_fidelity": 1.2761529007355533e-18, "qt_wall": 5.15}

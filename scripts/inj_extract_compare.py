@@ -82,8 +82,10 @@ def main():
 
     rows = list(done.values())
     for i, (name, ref) in enumerate(cases):
-        if name in done:
+        if name in done and "b_fidelity" in done[name]:
             continue
+        if name in done:
+            rows = [r for r in rows if r["circuit"] != name]  # 失败行重试
         row = {"circuit": name, "n": ref.get("n_qubits"),
                "native_fidelity": ref.get("native_fidelity"),
                "inj_fidelity": ref.get("inj_fidelity")}
@@ -98,8 +100,12 @@ def main():
                 native = transpile(qc0, target=target,
                                    basis_gates=PLATFORM_BASIS,
                                    optimization_level=3, seed_transpiler=42)
+                # 过滤 ancilla 虚拟比特（原生 O3 的 initial_layout 含
+                # 扩ancilla 的 105 项，重注入需仅保留原始虚拟比特）
+                orig_bits = set(qc0.qubits)
                 init = {v: p for v, p in
-                        native.layout.initial_layout.get_virtual_bits().items()}
+                        native.layout.initial_layout.get_virtual_bits().items()
+                        if v in orig_bits}
                 # B：qiskit 自选布局提取再注入（VF2PostLayout 被跳过）
                 b = transpile(qc0, target=target, basis_gates=PLATFORM_BASIS,
                               optimization_level=3, initial_layout=init,

@@ -117,9 +117,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--buckets", default="small,medium,large",
                     help="只跑指定层（并行分片用：如 --buckets large）")
-    ap.add_argument("--seeds", type=int, default=20,
-                    help="最终路由多种子数（routing_seeds，对齐 qiskit O3 "
-                         "trials=20；线程并行 8 worker，墙钟≈3 波）")
+    ap.add_argument("--seeds", type=int, default=16,
+                    help="最终路由多种子数（routing_seeds，2026-11-13 从 20 "
+                         "降为 16：与 20 的 min 差距 <1%，墙钟省 20%；"
+                         "线程并行 8 worker）")
     ap.add_argument("--shard", default=None,
                     help="层内分片 k/N（并行用：线路按序均分到 N 片，"
                          "每片独立输出文件，汇总时合并）")

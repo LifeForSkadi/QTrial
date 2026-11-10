@@ -56,17 +56,22 @@ def optimal_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     ops = circ.ops
     deps = [set(d) for d in circ.deps()]
 
-    # 上界：自研 SABRE 多种子取最小
-    ub = max_swaps
+    # 上界：自研 SABRE 多种子取最小（注意：必须给足 max_swaps 让
+    # SABRE 完整路由，截断的 UB 无效）
+    ub = None
     for s in range(4):
         try:
             _, sw, _ = sabre_route(circ, spec, dict(layout), seed=seed + s,
-                                   max_swaps=max_swaps)
-            ub = min(ub, sw)
+                                   max_swaps=100000)
+            ub = sw if ub is None else min(ub, sw)
         except Exception:
             pass
-    if ub >= max_swaps:
+    if ub is None:
         return None
+    if ub > max_swaps:
+        return None  # 最优解超过阈值：不适合做标签
+    if ub == 0:
+        return 0, []
 
     n = circ.n
     init_pos = [int(layout.get(i, i)) for i in range(n)]
