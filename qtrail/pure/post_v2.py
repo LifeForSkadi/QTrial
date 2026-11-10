@@ -56,6 +56,60 @@ def _oneq_matrix(name: str, params: tuple):
     raise ValueError(name)
 
 
+def _merge_u3_chain(insts: list) -> list:
+    """合成输出的 u3/u1 链合并（2026-11-13）：同比特连续的 u3/u1 →
+    矩阵乘积合成单 u3（精确、全局相位剥离）；u1（rz）穿过 cx 控制位
+    与后续 u3 合并：[u1(q), cx(q,r), u3(q)] → [cx(q,r), U(q)]——
+    qiskit euler 合成器的等价机制（rz 与 cx 控制位对易）。
+    """
+    out = []
+    i = 0
+    n = len(insts)
+    while i < n:
+        inst = insts[i]
+        if inst.name in ("u3", "u1") and inst.nq == 1:
+            q = inst.qubits[0]
+            j = i
+            U = np.eye(2, dtype=complex)
+            while j < n:
+                nj = insts[j]
+                if nj.name in ("u3", "u1") and nj.qubits[0] == q:
+                    U = _oneq_matrix(nj.name, nj.params) @ U
+                    j += 1
+                else:
+                    break
+            # 穿 cx 控制位的模式：[U(q), cx(q,r), u3(q)] →
+            # [cx(q,r), U'(q)]（U' = U·u3）
+            if (j < n and insts[j].name == "cx"
+                    and insts[j].qubits[0] == q and j + 1 < n
+                    and insts[j + 1].name in ("u3", "u1")
+                    and insts[j + 1].qubits[0] == q):
+                cx_inst = insts[j]
+                U = _oneq_matrix(insts[j + 1].name,
+                                 insts[j + 1].params) @ U
+                U = U / np.sqrt(np.linalg.det(U))
+                if abs(np.trace(U)) / 2 > 1 - 1e-9:
+                    out.append(cx_inst)      # U 恒等：只留 cx
+                else:
+                    out.append(cx_inst)
+                    out.append(Inst("u3", (q,), _mat_to_u3_params(U)))
+                i = j + 2
+                continue
+            if j - i > 1:
+                U = U / np.sqrt(np.linalg.det(U))
+                if abs(np.trace(U)) / 2 > 1 - 1e-9:
+                    pass  # 恒等：删除
+                else:
+                    out.append(Inst("u3", (q,), _mat_to_u3_params(U)))
+            else:
+                out.append(inst)
+            i = j
+        else:
+            out.append(inst)
+            i += 1
+    return out
+
+
 def _mat_to_u3_params(U) -> tuple:
     """SU(2) 矩阵 → u3(θ,φ,λ) 参数（含全局相位剥离的精确提取）。
 
@@ -597,6 +651,10 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
         if ov < 1 - 1e-7:
             continue
         new_insts = block_params_to_insts(t, pair)
+        # 合成输出的 u3/u1 链合并（2026-11-13）：同比特连续的
+        # u3/u1 → 矩阵乘积合成单 u3——8 u3 + 4 u1 的参数冗余
+        # 砍半（heisenberg 每段 8.4→5 级 1Q 门）
+        new_insts = _merge_u3_chain(new_insts)
         ops[start:end] = new_insts
     circ._deps = None
     return circ
