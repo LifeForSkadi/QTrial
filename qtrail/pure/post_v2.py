@@ -277,6 +277,60 @@ def merge_1q_runs(out_ops: list) -> int:
     return merged
 
 
+def merge_u3_runs(out_ops: list) -> int:
+    """分解前的 u3 级游程合并（2026-11-12，qv 类 1Q 缺口机制）。
+
+    数学依据（预注册见 pending_decisions 补充三十六）：
+    1. 不相交支撑对易（定理级）：u3(q) 可滑过不触碰 q 的 cx/swap，
+       bubble 聚拢同比特 u3 游程
+    2. U3·U3 = e^{iδ}·U3'（U(2) 封闭 / ZXZ 欧拉，N&C Thm 4.1）；
+       e^{iδ}I_q = e^{iδ}I_total 是全系统全局相位，精确可丢
+       （_mat_to_u3_params 的 α 剥离即此）
+    3. 与台账 #11/#13/#15 的关系：那些是分解后 rz/sx 层操作
+       （被 P7 sx穿cz 锁死）；本 pass 在分解前 u3 层，锁不存在
+
+    单调：只滑动（不动 2Q 结构）+ 只合并（每对净 −1 门）。
+    返回合并的 u3 对数。
+    """
+    # 1) bubble 滑动聚拢（固定轮数，右移；每轮把每个 u3 移到其
+    # 最右阻塞位）。只滑过非 u3 门：异比特 u3 无需互相穿越
+    # （对方自会滑走），也避免"两 u3 互不相交→无限互换"的
+    # 无界 ping-pong（while-moved 版实测死循环）。
+    for _ in range(6):
+        i = 0
+        n = len(out_ops)
+        while i < n - 1:
+            a, b = out_ops[i], out_ops[i + 1]
+            if a.name == "u3" and b.name != "u3" and b.nq >= 1 \
+                    and int(a.qubits[0]) not in b.qubits:
+                out_ops[i], out_ops[i + 1] = b, a
+            i += 1
+    # 2) 相邻同比特 u3 对合并（矩阵精确乘，相位剥离）+ 收益检查：
+    # 只合并分解后净减门的对——两个零角 u3（各 1-3 门）合并成
+    # 通用 u3（5 门）是负收益（qv32 实测 +656 门），跳过
+    from qtrail.pure.post import _u3_to_rzsx_min as _rzsx_min
+    merged = 0
+    i = 0
+    n = len(out_ops)
+    while i < n - 1:
+        a, b = out_ops[i], out_ops[i + 1]
+        if a.name == "u3" and b.name == "u3" \
+                and a.qubits == b.qubits:
+            U = _oneq_matrix("u3", b.params) @ _oneq_matrix("u3", a.params)
+            new_params = _mat_to_u3_params(U)
+            if len(_rzsx_min(*new_params)) \
+                    < len(_rzsx_min(*a.params)) + len(_rzsx_min(*b.params)):
+                out_ops[i] = Inst("u3", a.qubits, new_params)
+                del out_ops[i + 1]
+                n -= 1
+                merged += 1
+            else:
+                i += 1
+        else:
+            i += 1
+    return merged
+
+
 def _is_h_block(ops, i):
     q = ops[i].qubits[0]
     return (ops[i].name == "rz" and ops[i + 1].name == "sx"
@@ -1480,6 +1534,7 @@ def commute_cancel_cx(out_ops: list, window: int = 12,
 def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
                              cancel_cx: bool = True,
                              fixpoint: bool = True,
+                             merge_u3: bool = False,
                              spec=None, resynth_every: int = 0,
                              lock_emissions: bool = False,
                              final_sweep: bool = True,
@@ -1504,6 +1559,11 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
     work.measures = list(circ.measures)
     if cancel_cx:
         commute_cancel_cx(work.ops)
+    if merge_u3:
+        # u3 级游程合并（2026-11-12，qv 类机制，补充三十六预注册）：
+        # 分解前把同比特连续 u3 乘成单 u3——分解后 sx 被 cz 锁死
+        # （P7），此窗口是唯一合并点
+        merge_u3_runs(work.ops)
     out = _v4_decompose(work, expand_swap=expand_swap)
     if not fixpoint:
         return out
