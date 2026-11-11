@@ -71,5 +71,76 @@ def after_dist_matrix(dist_flat, N, q1, q2, ea, eb):
     return _after_dist_flat(ea, eb, q1, q2, dist_flat, N)
 
 
+if _HAS_NUMBA:
+    @njit(cache=True)
+    def _h2_batch(ea, eb, P1, P2, dist_flat, N):
+        """前瞻层批量内核（2026-11-12）：对每候选 c 计算换位后的
+        二次前瞻 h2[c] = min_f Σ_f' dist(after_c(f'))（排除 c 自身）。
+
+        替代 router.py 的 `for c in range(len(cand))` Python 循环
+        （20 次 numba 边界调用/门）——一次调用内循环全部候选。
+        P1/P2 形状 [C,F]：候选 c 交换后前沿门的新位置。"""
+        C = ea.shape[0]
+        F = P1.shape[1]
+        h2 = np.empty(C, dtype=np.float64)
+        for c in range(C):
+            best = np.inf
+            for s in range(C):
+                if s == c:
+                    continue
+                total = 0.0
+                a = ea[s]
+                b = eb[s]
+                for f in range(F):
+                    pa = P1[c, f]
+                    pb = P2[c, f]
+                    if pa == a:
+                        pa = b
+                    elif pa == b:
+                        pa = a
+                    if pb == a:
+                        pb = b
+                    elif pb == b:
+                        pb = a
+                    total += dist_flat[pa * N + pb]
+                if total < best:
+                    best = total
+            h2[c] = best
+        return h2
+else:
+    def _h2_batch(ea, eb, P1, P2, dist_flat, N):
+        C = ea.shape[0]
+        F = P1.shape[1]
+        h2 = np.empty(C, dtype=np.float64)
+        for c in range(C):
+            best = np.inf
+            for s in range(C):
+                if s == c:
+                    continue
+                total = 0.0
+                a, b = int(ea[s]), int(eb[s])
+                for f in range(F):
+                    pa, pb = int(P1[c, f]), int(P2[c, f])
+                    if pa == a:
+                        pa = b
+                    elif pa == b:
+                        pa = a
+                    if pb == a:
+                        pb = b
+                    elif pb == b:
+                        pb = a
+                    total += dist_flat[pa * N + pb]
+                if total < best:
+                    best = total
+            h2[c] = best
+        return h2
+
+
+def h2_lookahead_batch(ea, eb, P1, P2, dist_flat, N):
+    """h2 前瞻批量入口（2026-11-12）：语义与 router.py 的
+    Python 循环逐位一致（排除自身、取 min 总和）。"""
+    return _h2_batch(ea, eb, P1, P2, dist_flat, N)
+
+
 def has_numba() -> bool:
     return _HAS_NUMBA

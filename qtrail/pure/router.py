@@ -448,13 +448,11 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
             P2 = np.where(fq2[None, :] == ea_[:, None], eb_[:, None],
                           np.where(fq2[None, :] == eb_[:, None],
                                    ea_[:, None], fq2[None, :]))
-            h2 = np.full(len(cand), np.inf)
-            for c in range(len(cand)):
-                D2 = after_dist_matrix(dist_flat, spec.n, P1[c], P2[c],
-                                       ea_, eb_)
-                v = D2.sum(axis=1).astype(np.float64)
-                v[c] = np.inf  # 排除自身（两次同边换位=恒等，无信息）
-                h2[c] = v.min()
+            # 前瞻批量内核（2026-11-12）：替代 Python 循环
+            # （20 次 numba 边界调用/门 → 1 次）
+            from qtrail.pure.swap_kernel import h2_lookahead_batch
+            h2 = h2_lookahead_batch(ea_, eb_, P1, P2, dist_flat,
+                                    spec.n)
         scores = basic + wext * ext_cost \
             + (lookahead_w * h2 if h2 is not None else 0.0) \
             + (wl * l1_cost if l1_cost is not None else 0.0)
