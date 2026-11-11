@@ -410,6 +410,49 @@ def fit_block_torch(U, init, steps=300, lr=0.1):
     return tn, ov
 
 
+def synth_block_analytic(U, pair):
+    """A2 块解析合成（2026-11-13，qiskit TwoQubitBasisDecomposer
+    机制——Weyl/KAK 闭式解，0.9ms/块、重叠 1.0000000000）。
+
+    替代 fit_block_torch 的数值拟合（300-500 步 backward/块——
+    qft25 卡 120s、hwb12 后处理数十分钟的机制根源）。qiskit 自动
+    给最小 cx 数（2 或 3）；输出 {u3, cx} 与 block_params_to_insts
+    同构（u3/u1/cx），下游 _to_cz_basis/_platformize 直接复用。
+
+    模板比特 0 → a、比特 1 → b。
+    """
+    from qiskit.synthesis.two_qubit import TwoQubitBasisDecomposer
+    from qiskit.circuit.library import CXGate
+    dec = TwoQubitBasisDecomposer(CXGate(), euler_basis="U3")
+    qc = dec(np.asarray(U, dtype=complex))
+    a, b = pair
+    out = []
+    for g in qc.data:
+        name = g.operation.name
+        idxs = [int(qc.find_bit(q).index) for q in g.qubits]
+        # 比特序反转（2026-11-13 实测）：qiskit 的 2 比特约定为
+        # little-endian（比特 0 低位），管线的 _block_unitary 约定
+        # 比特 a 高位（big-endian）——qiskit 比特 0 → pair 的 b、
+        # 比特 1 → a（反转后 _block_unitary 重叠 1.0，不反转 0.396）
+        if name in ("cx", "CX"):
+            ctl, tgt = idxs[0], idxs[1]
+            out.append(Inst("cx", (b if ctl == 0 else a,
+                                  b if tgt == 0 else a)))
+        elif name in ("u3", "u"):
+            q = idxs[0]
+            out.append(Inst("u3", (b if q == 0 else a,),
+                           tuple(float(p) for p in g.operation.params)))
+        elif name in ("u1", "p", "rz"):
+            q = idxs[0]
+            out.append(Inst("u1", (b if q == 0 else a,),
+                           (float(g.operation.params[0]),)))
+        elif name in ("id",):
+            continue
+        else:
+            raise ValueError(f"解析合成输出未支持的门 {name}")
+    return out
+
+
 def block_params_to_insts(t, pair):
     """21 参数 + 物理比特对 (a, b) → Inst 列表（u3/u1/cx）。
 

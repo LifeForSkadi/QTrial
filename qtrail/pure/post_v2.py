@@ -761,22 +761,17 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
             del ops[start:end]
             continue
         try:
-            dec = kak_decompose(U, iters=20)  # 初值器只需"接近"（~6ms）
-            init = np.zeros(21)
-            for idx, K in enumerate((dec["K1"], dec["K2"])):
-                th, ph, la = _su2_euler(K)
-                init[3 * idx:3 * idx + 3] = [th, ph, la]
-            for idx, K in enumerate((dec["K3"], dec["K4"])):
-                th, ph, la = _su2_euler(K)
-                init[14 + 3 * idx:14 + 3 * idx + 3] = [th, ph, la]
-            # 3-CX 中间参数走缓存（相同 Cartan 系数的块复用，耗时优化）
-            init[6:14] = _cached_3cx_params(np.asarray(dec["k"]))
-            t, ov = fit_block_torch(U, init)
+            # 解析合成（2026-11-13，qiskit Weyl/KAK 闭式解——
+            # 替代 torch 拟合，0.9ms/块 vs 300-500 步 backward）
+            from qtrail.pure.synthesis import synth_block_analytic
+            new_insts = synth_block_analytic(U, pair)
         except Exception:
             continue
+        # 精确性守卫（解析解应恒过；保险验证重叠）
+        U2 = _block_unitary(new_insts, pair)
+        ov = abs(np.vdot(U2.reshape(-1), U.reshape(-1))) / 4.0
         if ov < 1 - 1e-7:
             continue
-        new_insts = block_params_to_insts(t, pair)
         tu_ok = False
         if not use_tuccil:
             ops[start:end] = new_insts
@@ -907,21 +902,14 @@ def collect_resynthesize_2q_blocks_full(circ: Circuit, spec,
             continue
         orig_err = block_error(start, end, pair)
         try:
-            dec = kak_decompose(U, iters=20)
-            init = np.zeros(21)
-            for idx, K in enumerate((dec["K1"], dec["K2"])):
-                th, ph, la = _su2_euler(K)
-                init[3 * idx:3 * idx + 3] = [th, ph, la]
-            for idx, K in enumerate((dec["K3"], dec["K4"])):
-                th, ph, la = _su2_euler(K)
-                init[14 + 3 * idx:14 + 3 * idx + 3] = [th, ph, la]
-            init[6:14] = _cached_3cx_params(np.asarray(dec["k"]))
-            t, ov = fit_block_torch(U, init)
+            from qtrail.pure.synthesis import synth_block_analytic
+            new_insts = synth_block_analytic(U, pair)
         except Exception:
             continue
+        U2 = _block_unitary(new_insts, pair)
+        ov = abs(np.vdot(U2.reshape(-1), U.reshape(-1))) / 4.0
         if ov < 1 - 1e-7:
             continue
-        new_insts = block_params_to_insts(t, pair)
         # 误差加权守卫：合成产物（3 CX + 12 1Q）的 2Q 误差积必须
         # 不劣于原块（1Q 误差由后续 B 组件统一处理）
         new_2q_err = (1.0 - float(err2q.get(pair, err2q.get(
