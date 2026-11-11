@@ -266,8 +266,10 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     # 进入 frontier 时 +1。swap 不改变层结构（qiskit apply_swap 语义）。
     l1 = set()
     cnt_af = [0] * m
-    n2q_deps = [sum(1 for j in deps[i] if len(ops[j].qubits) == 2)
-                for i in range(m)]
+    # n2q_deps O(m)（2026-11-12 加速）：deps 构建的 last_2q 只记
+    # 2Q 门 → deps[i] 全为 2Q 前驱 → len 即 2Q 依赖数。原 sum
+    # 生成器 51.4 万次 Python 调用/种子（hwb12 ×160 = 线路级 50s）
+    n2q_deps = [len(d) for d in deps]
     for i in frontier:
         for s in succ[i]:
             if s not in frontier and deps[s] <= allowed \
