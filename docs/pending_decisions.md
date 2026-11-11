@@ -1031,3 +1031,17 @@ Python 开销是 8s/种子的主体——10 倍目标）。
 **今晚机制修复链（8 项）**：A2 torch→Weyl/KAK 解析（fid+19%、
 墙钟−92%）、比特序反转、merge O(n²)→O(n)、numba 腐蚀、路由
 截断守卫、链判定 O(m)、h2 批量、fold_keep 语义重写+RL 覆盖。
+
+### -5 补充三十四（2026-11-12 凌晨，路由加速第二阶段诊断）
+
+**cProfile 热点（hwb12 2000swap 2.49s）**：主循环函数体
+1.66s（66%）+ set.add 143 万次 + dict.get 106 万次 +
+len 224 万次——根因 = 集合/字典驱动的 Python 主循环
+（51 万迭代 × ~3μs 循环体）。已修：n2q_deps（−26%）、
+链判定 O(m)、h2 批量。**主循环 numba 化设计（明天）**：
+- frontier/ext/l1 集合 → 排序数组+掩码（numba 友好）
+- pos/inv 字典 → 固定数组（pos[逻辑]、inv[物理]——已是
+  数组语义、dict 换数组）
+- 评分段（basic/wext/h2/decay）已 numpy——整段进 numba
+- 链执行/防卡死逃逸保留 Python（低频）
+- 验证：heis N16 swaps=22 口径 + hwb12 单种子时间
