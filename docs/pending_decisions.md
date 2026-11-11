@@ -1045,3 +1045,45 @@ len 224 万次——根因 = 集合/字典驱动的 Python 主循环
 - 评分段（basic/wext/h2/decay）已 numpy——整段进 numba
 - 链执行/防卡死逃逸保留 Python（低频）
 - 验证：heis N16 swaps=22 口径 + hwb12 单种子时间
+
+### -5 补充三十五（2026-11-12，路由主循环 numba 内核——落地）
+
+**交付**：router.py 主循环 → router_kernel.py 的 `_sabre_loop`
+njit 内核（数组驱动单函数），语义与 Python 路径**逐位一致**。
+
+**等价性保证**（内核头注释的不变式 + 门禁 ab_router_kernel.py
+9 线路 × 2 种子 18/18 逐位一致——swap 数、最终布局、指令序列）：
+1. 评分全为整数和（dist int64）→ 求和顺序无关；执行段按门号
+   排序、候选边排序去重、PCG 平局序列逐次一致
+2. deps[s]≤2 → 双槽表示；succ → CSR
+3. 链成员判定 chain_head_of[k]==i（一次 O(m) 构建）。**教训：
+   不可用 chain_prev[k]!=-1 判定——链区间内可夹异对子链成员**
+4. ext/l1 全 2Q 门（加入点带守卫）
+5. PCG64Mcg 128 位状态无法进 numba → 预生成 u64 缓冲 + 内核内
+   复刻 gen_range rejection sampling；缓冲惰性续灌（action 5）
+6. 逃逸（防卡死回卷+最近门拉近）保留 Python（action 1 协作）；
+   out 数组容量不足 action 6 扩容
+
+**三大实现坑**（每个都有根因记录）：
+- 候选边归一化：Python 的 `(a,b) if b>a else (b,a)` 从 eps 任一
+  端点加入（含"邻居在 eps、自身不在"的边）；内核只扫 b>a 半边
+  会丢边——heis N16 首轮即分歧（cand 5 vs 4）
+- numba typed.List 跨界读取：每 tuple 字段走 boxing（typeof 派发
+  ~2μs/字段）——44 万门 × 7 字段 ≈ 7s，占内核路径 70%。改
+  **预分配 out 数组 + 计数器**（回卷=递减）
+- **reflected list**：router.py 传入的 chain_next/chain_prev/
+  chain_1q_owner 是 Python 列表，编译代码每次元素访问跨 C 边界
+  回调 typeof（hwb8 实测每门精确 6 次 typeof）——进内核前必须
+  asarray。这是"内核反而慢"的最后根因
+
+**开关**：numa_loop=True 默认（scorer/tabu/noise_tie/noise_w/
+pcg_tie=False/调试层/m>1M 自动回退 Python）；环境变量
+QTRAIL_ROUTER_PY=1 全局强制 Python 路径（可退回）。
+
+**速度**（同布局同种子）：hwb8 3565swap 0.223→0.058s（x3.8）；
+qaoa N100/N105 截断 x4.9-5.7；QV_n32 全路由 x2.4；小线路
+（ms 级）有 ~2ms 固定转换开销。hwb12 2000-swap 口径 1.60→1.53s
+（共享 setup ~1.2s 已主导——下一阶段目标：setup 向量化）。
+
+**门禁**：scripts/ab_router_kernel.py（18/18 OK）+ 生产管线锚点
+verify_heisenberg_semantics.py 双路径 fid=0.442677。

@@ -37,6 +37,8 @@
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 from qtrail.pure.circuit import Circuit, Inst
@@ -58,7 +60,8 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 scorer=None, scorer_sample: bool = False,
                 scorer_temp: float = 1.0, scorer_stats: dict | None = None,
                 max_swaps: int = 100000, trials: int = 1,
-                mix_rollout: bool = False, pcg_tie: bool = True):
+                mix_rollout: bool = False, pcg_tie: bool = True,
+                numa_loop: bool = True):
     """返回 (routed: Circuit[物理空间], swap_count, final_layout)。
 
     w_ext=None → 0.5/spec.n（qiskit decay 口径）；decay_pen 为历史遗留
@@ -248,6 +251,20 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         for j in deps[i]:
             succ[j].add(i)
 
+    # 链归属 O(m)（2026-11-12）：chain_head_of[k] = k 所在链的链头
+    # （非链门为自身）。注意：区间内可存在异对子链（链 i 的成员之间
+    # 夹着另一条链 {c,d} 的成员），故"chain_prev≠-1 即本链成员"
+    # 是错的——异链成员的 chain_prev 也非 -1。归属表才是 O(1) 判定。
+    chain_head_of = [-1] * m
+    for head in range(m):
+        if chain_prev[head] != -1:
+            continue
+        chain_head_of[head] = head
+        j = chain_next[head]
+        while j != -1:
+            chain_head_of[j] = head
+            j = chain_next[j]
+
     # pos/inv 数组化（2026-11-12 numba 化前置）：字典 → 固定数组
     # （pos[逻辑]=物理、inv[物理]=逻辑，-1 哨兵）——主循环的
     # dict.get/pop/del 换成数组索引/赋值
@@ -298,6 +315,8 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     batch = []  # 自上次进展以来的交换批（逃逸回卷用）
     wext = w_ext if w_ext is not None else 0.5 / spec.n
     wl = w_layer if w_layer is not None else 0.5 / spec.n
+    # lam_ms=None → 0.0（诊断脚本口径；生产恒为数值）
+    lam_ms = 0.0 if lam_ms is None else lam_ms
     # 禁忌表：物理边/比特上次被选为交换的步号（-1 = 从未）
     last_edge = np.full(spec.n * spec.n, -1, dtype=np.int64)
     last_qubit = np.full(spec.n, -1, dtype=np.int64)
@@ -312,6 +331,39 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     decay_steps = 0
     since_exec = 0
     attempt_limit = 10 * circ.n
+
+    # ---- Numba 主循环内核（2026-11-12）：语义与下方 Python 路径逐位
+    # 一致（评分整数和、排序执行、PCG 平局序列相同——见 router_kernel
+    # 头注释的不变式）。禁用开关：numa_loop=False / 环境变量
+    # QTRAIL_ROUTER_PY=1（可退回）；scorer（MLP 训练）、禁忌、噪声
+    # 平局、噪声缩放距离、调试层 → Python 路径。
+    if ((numa_loop and scorer is None and tabu_window == 0
+            and noise_tie == 0.0 and noise_w == 0.0 and pcg_tie
+            and not _DEBUG_LAYER and m <= 1_000_000
+            and not os.environ.get("QTRAIL_ROUTER_PY"))
+            and (m >= 2_000
+                 or os.environ.get("QTRAIL_ROUTER_NUMBA_ALL"))):
+        try:
+            from qtrail.pure import router_kernel as _RK
+            if _RK.has_numba():
+                return _RK.run_numba_route(
+                    circ=circ, spec=spec, seed=seed, ops=ops, m=m,
+                    _q0=_q0, _q1=_q1, _nq=_nq, amat=amat, nbrs=nbrs,
+                    dist=dist, dist_flat=dist_flat,
+                    chain_next=chain_next, chain_prev=chain_prev,
+                    chain_1q_owner=chain_1q_owner,
+                    chain_head_of=chain_head_of, deps=deps, succ=succ,
+                    frontier=frontier, allowed=allowed, ext=ext, l1=l1,
+                    cnt_af=cnt_af, n2q_deps=n2q_deps,
+                    wext=wext, wl=wl, lam_ms=lam_ms,
+                    lookahead_w=lookahead_w,
+                    decay_inc=decay_inc, decay_reset=decay_reset,
+                    cand_scope=cand_scope, attempt_limit=attempt_limit,
+                    max_swaps=max_swaps, pos=pos, inv=inv,
+                    decay=decay, last_edge=last_edge,
+                    last_qubit=last_qubit)
+        except ImportError:
+            pass
 
     def front_arrays(fset):
         """集合内 2Q 门的 (q1pos, q2pos) numpy 数组。"""
@@ -350,17 +402,16 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 executed.add(i)
                 # 链头执行 = 整链按序输出（含链区间内并入的
                 # 1Q 门——qiskit indices 附着语义）
-                chain_set = set()
-                j = i
-                while j != -1:
-                    chain_set.add(j)
-                    j = chain_next[j]
+                # 链成员判定 O(1)（2026-11-12）：chain_head_of[k]==i
+                # ⟺ k 是本链成员——与逐次重建 chain_set 的成员测试
+                # 逐位等价（异链成员由归属表排除）
                 tail = i
                 while chain_next[tail] != -1:
                     tail = chain_next[tail]
                 for k in range(i, tail + 1):
                     inst = ops[k]
-                    if k == i or k in chain_set or chain_1q_owner[k] == i:
+                    if k == i or chain_head_of[k] == i \
+                            or chain_1q_owner[k] == i:
                         if k != i:
                             executed.add(k)
                         if inst.nq == 1:
@@ -620,6 +671,24 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
             # 感知扩展（默认 0 关闭）。
             sbest = scores.min()
             tied = np.where(scores <= sbest + max(1e-10, noise_tie))[0]
+            if os.environ.get("QTRAIL_RDBG"):
+                print(f"[py r{swap_count}] F={len(fq1)} E={len(eq1)} "
+                      f"L={len(l1) if l1 else 0} C={len(cand)} "
+                      f"sbest={sbest:.9f} ntied={len(tied)}",
+                      flush=True)
+                print(f"  fq1={fq1.tolist()} fq2={fq2.tolist()} "
+                      f"eq1={eq1.tolist()} eq2={eq2.tolist()}",
+                      flush=True)
+                print(f"  cand={[(int(a), int(b)) for a, b in cand]}",
+                      flush=True)
+                print(f"  basic={basic.tolist()}", flush=True)
+                print(f"  ext={ext_cost.tolist()}", flush=True)
+                print(f"  l1c={l1_cost.tolist() if l1_cost is not None else None}",
+                      flush=True)
+                print(f"  scores={[float(x) for x in scores]}", flush=True)
+                print(f"  tied={tied.tolist()} cand_tied="
+                      f"{[(int(ea_[i]), int(eb_[i])) for i in tied]}",
+                      flush=True)
             if _DEBUG_LAYER and len(tied) > 1:
                 if l1_cost is not None:
                     lr = (l1_cost[tied].min(), l1_cost[tied].max())
