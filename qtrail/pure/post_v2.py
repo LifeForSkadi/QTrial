@@ -978,7 +978,7 @@ def collect_resynthesize_2q_blocks_full(circ: Circuit, spec,
 
 # ------------------------------------------------- C1：噪声感知后布局重标记
 def noise_aware_relabel(circ: Circuit, spec, final_layout: dict,
-                        max_passes: int = 30) -> int:
+                        max_passes: int = 30, layout: dict | None = None) -> int:
     """C1 组件：路由后重标记（对标 VF2PostLayout 的自主弱化版）。
 
     移动 = 全局标签置换的单步：物理位 p → 空位 p'（线路中所有标签为
@@ -986,7 +986,11 @@ def noise_aware_relabel(circ: Circuit, spec, final_layout: dict,
     （含 swap）改后端点必须相邻；接受条件：p 相关边的校准误差和下降。
     纯标签置换不改门序列/门数/深度，只改"线路落在哪些耦合器上"。
 
-    返回接受的移动次数。线路与 final_layout 原地更新。
+    layout：初始布局（输入嵌入约定），随同一置换同步更新——交付
+    结果的 layout/final_layout 坐标必须自洽（2026-11-12 审查发现：
+    重标记只更新 final_layout 时，输入按 layout 嵌入即语义错位）。
+
+    返回接受的移动次数。线路与 final_layout（及 layout）原地更新。
     """
     ops = circ.ops
     disabled = set(spec.disabled_qubits)
@@ -1046,6 +1050,11 @@ def noise_aware_relabel(circ: Circuit, spec, final_layout: dict,
                 for k, v in final_layout.items():
                     if v == p:
                         final_layout[k] = p_new
+                # layout（输入嵌入）随同一置换同步（2026-11-12 审查修复）
+                if layout is not None:
+                    for k, v in layout.items():
+                        if v == p:
+                            layout[k] = p_new
                 # 增量更新邻居表：p 的邻居把 p 换成 p_new
                 for x in p_nbrs:
                     nbrs[x].discard(p)
@@ -1064,7 +1073,7 @@ def noise_aware_relabel(circ: Circuit, spec, final_layout: dict,
 # ------------------------------------------------- L3：学习式重标记（复用 QAPolicy）
 def learned_relabel(policy, spec, circ: Circuit, final_layout: dict,
                     cfg, dev="cpu", seed=0, noise_lambda=0.5,
-                    n_rl_keep=3) -> int:
+                    n_rl_keep=3, layout: dict | None = None) -> int:
     """L3 组件：学习式重标记（复用已训练的 QAPolicy，零重训练）。
 
     机制：把路由后线路视为"新逻辑线路"（物理位标签 = 新逻辑比特），
@@ -1120,6 +1129,9 @@ def learned_relabel(policy, spec, circ: Circuit, final_layout: dict,
             m.qubits = (int(pi[int(m.qubits[0])]),)
         for k, v in final_layout.items():
             final_layout[k] = int(pi[int(v)])
+        if layout is not None:
+            for k, v in layout.items():
+                layout[k] = int(pi[int(v)])
         return moved
 
     ops = [(i.name, tuple(int(q) for q in i.qubits)) for i in circ.ops]

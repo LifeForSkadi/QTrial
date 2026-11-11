@@ -209,12 +209,17 @@ class PureMapper:
                      with_learned: bool = True, with_resynth: bool = True,
                      relabel_budget: float | None = 25.0,
                      full_resynth: bool = False,
-                     pre_folded=None):
+                     pre_folded=None, layout: dict | None = None):
         """v5 后处理栈（含非劣化开关）。返回 (routed, final_layout, final_qc)。
 
         pre_folded=(circ, fin)：post_route 前 fold_keep 产物（审查代理
         修复版），作为候选 2b 参与评分——坐标系干净（无 push_swaps
         推挤污染）。
+
+        layout：初始布局（输入嵌入约定）——重标记（VF2/C1/L3）置换
+        线路标签时随 final_layout 同步更新，保证交付结果的
+        layout/final_layout 坐标自洽（2026-11-12 审查修复：此前
+        layout 陈旧，按 layout 嵌入输入即语义错位）。原地更新。
 
         with_learned=False 跳过 L3、with_resynth=False 跳过 A2 块重合成、
         relabel_budget=None 跳过全局重标记（候选评分用：耗时大头在
@@ -229,6 +234,7 @@ class PureMapper:
             noise_aware_relabel)
         routed_v4 = routed.copy()
         fin_v4 = dict(final_layout)
+        lay_v4 = dict(layout) if layout is not None else None
         final_qc_v4 = decompose_to_platform(routed_v4)
 
         # ---- 三候选后处理路径，代理评分按决胜规则选优（2026-11-12：
@@ -250,35 +256,55 @@ class PureMapper:
                 for k, v in final_layout.items():
                     fla[k] = int(mapping.get(
                         int(arr_only[int(v)]), int(arr_only[int(v)])))
-                cands.append((ra, fla))
+                lay_a = None
+                if layout is not None:
+                    # fold 类产物输入在最终坐标（swap 吸收进重标记，
+                    # 产物 = 最终坐标视图）——输入约定 = 候选的
+                    # final_layout 本身（2026-11-12 审查实测：dj_8
+                    # 交付线路输入约定 = final_layout）
+                    lay_a = dict(fla)
+                cands.append((ra, fla, lay_a))
         # 候选 2：老折叠路径（逐 swap 判定 + 链化）
         folded, fold_arr = fold_and_relink(routed, self.spec)
         if fold_arr is not None:
             flb = dict(final_layout)
             for k, v in flb.items():
                 flb[k] = int(fold_arr[int(v)])
-            cands.append((folded, flb))
+            lay_b = None
+            if layout is not None:
+                # fold 类产物输入在最终坐标——输入约定 = flb 本身
+                # （2026-11-12 审查实测）
+                lay_b = dict(flb)
+            cands.append((folded, flb, lay_b))
         # 候选 2b（2026-11-13）：post_route 前 fold_keep 产物
-        # （审查代理 P0 修复版——最终坐标重标记，非空验 fid=1.0）
+        # （审查代理 P0 修复版——最终坐标重标记，非空验 fid=1.0）。
+        # 输入约定 = 最终坐标本身：fold_keep 把每门重标记到
+        # fl[content[p]]，逻辑 i 的首个门落在 final_layout[i]——
+        # 输入嵌入即 final_layout（2026-11-12 审查从实现推导）
         if pre_folded is not None:
-            cands.append(pre_folded)
+            cands.append(pre_folded
+                         + (dict(pre_folded[1]),))
         # 候选 3：裸路由（v4 行为，永远合法）
-        cands.append((routed.copy(), dict(final_layout)))
+        cands.append((routed.copy(), dict(final_layout),
+                      dict(layout) if layout is not None else None))
         # 代理评分选优（分解后指标 + 决胜规则）
         scored = []
-        for c0, c1 in cands:
+        for c0, c1, c2 in cands:
             q = decompose_to_platform(c0)
             m = pure_metrics(q, c0.count("swap"), self.spec.calib,
                              predictor=self.fidelity_predictor)
             scored.append((m["swap_count"], m["depth"],
-                           m["est_fidelity"], (c0, c1)))
+                           m["est_fidelity"], (c0, c1, c2)))
         chosen = self._select(scored)[0]
         routed, final_layout = chosen[0], dict(chosen[1])
-        noise_aware_relabel(routed, self.spec, final_layout)
+        if layout is not None and chosen[2] is not None:
+            layout.clear()
+            layout.update(chosen[2])
+        noise_aware_relabel(routed, self.spec, final_layout, layout=layout)
         if with_learned and self.policy is not None:
             learned_relabel(self.policy, self.spec, routed, final_layout,
                             self.cfg, dev=self.dev, seed=self.seed,
-                            noise_lambda=noise_lambda)
+                            noise_lambda=noise_lambda, layout=layout)
         if with_resynth:
             # 注：解碎片 _preslide_1q 已移除（2026-11-13 达标消融：
             # no-slide 三线路保真度全面更好——0.821/0.713/0.775 vs
@@ -298,6 +324,9 @@ class PureMapper:
                             predictor=self.fidelity_predictor)
         if not self._v5_not_worse(m_v5, m_v4):
             routed, final_layout, final_qc = routed_v4, fin_v4, final_qc_v4
+            if layout is not None and lay_v4 is not None:
+                layout.clear()
+                layout.update(lay_v4)
         return routed, final_layout, final_qc
 
     def _full_score_candidates(self, circ, graph, candidates, noise_lambda):
@@ -352,12 +381,14 @@ class PureMapper:
         for entry in full:
             if np.array_equal(entry[3], best_pi):
                 routed_pre, fin_pre, removed = entry[4]
+                lay_dict = {i: int(best_pi[i]) for i in range(graph.n)}
                 routed, final_layout, final_qc = self._v5_pipeline(
                     routed_pre, dict(fin_pre), circ, noise_lambda,
                     with_learned=True,
-                    full_resynth=(self.pipeline == "v6"))
+                    full_resynth=(self.pipeline == "v6"),
+                    layout=lay_dict)
                 self._full_result = (routed, final_layout, final_qc,
-                                     removed)
+                                     removed, lay_dict)
                 break
         return best_pi, best_swaps
 
@@ -394,7 +425,11 @@ class PureMapper:
         layout = {i: int(pi[i]) for i in range(graph.n)}
 
         if self._full_result is not None:
-            routed, final_layout, final_qc, removed = self._full_result
+            if len(self._full_result) == 5:
+                routed, final_layout, final_qc, removed, layout = \
+                    self._full_result
+            else:
+                routed, final_layout, final_qc, removed = self._full_result
             swaps = routed.count("swap")
         else:
             # 2026-11-13 审查代理 P1 修复：巨型线路（hwb12 类 10 万+
@@ -433,7 +468,7 @@ class PureMapper:
                 routed, final_layout, final_qc = self._v5_pipeline(
                     routed, final_layout, circ, noise_lambda,
                     full_resynth=(self.pipeline == "v6"),
-                    pre_folded=pre_folded)
+                    pre_folded=pre_folded, layout=layout)
             else:
                 final_qc = decompose_to_platform(routed)
         metrics = pure_metrics(final_qc, routed.count("swap"),
