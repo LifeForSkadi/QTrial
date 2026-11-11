@@ -128,6 +128,15 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         rng_pcg = Pcg64Mcg(seed)
     ops = circ.ops
     m = len(ops)
+    # ops 数组化（2026-11-12 机制加速）：qubits/门类型转 numpy——
+    # 主循环与依赖构建的 Python 属性访问 → 数组索引
+    _q0 = np.empty(m, dtype=np.int64)
+    _q1 = np.empty(m, dtype=np.int64)
+    _nq = np.empty(m, dtype=np.int64)
+    for i, inst in enumerate(ops):
+        _nq[i] = len(inst.qubits)
+        _q0[i] = int(inst.qubits[0])
+        _q1[i] = int(inst.qubits[1]) if _nq[i] == 2 else -1
 
     # 邻接布尔矩阵 + 距离矩阵 + 有序邻接表（numpy / 列表）
     amat = np.zeros((spec.n, spec.n), dtype=bool)
@@ -179,23 +188,28 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
     # 此前仅 qasm 紧邻——dtc 类 1Q 门密集、链全空，第 0 步 front 与
     # qiskit 分歧的对拍实锤）。链合并后链头执行即整链执行（同对 ⇒
     # 同时可路由）。
+    # 链判定 O(m)（2026-11-12 修复）：原实现对每门回溯
+    # range(i-1,-1,-1) 找前驱——O(m²)，hwb12 51 万门的依赖构建
+    # 隐藏成本。改用 last_2q 前向跟踪（与 deps 段同款）。
+    last2q_by_q = {}
     for i in range(m):
-        if len(ops[i].qubits) != 2 or ops[i].name == "swap":
+        if _nq[i] != 2 or ops[i].name == "swap":
             continue
-        preds = []
-        for q in ops[i].qubits:
-            j = None
-            for k in range(i - 1, -1, -1):
-                if len(ops[k].qubits) == 2 and ops[k].name != "swap" \
-                        and int(q) in (int(ops[k].qubits[0]),
-                                       int(ops[k].qubits[1])):
-                    j = k
-                    break
-            preds.append(j)
-        if (preds[0] is not None and preds[0] == preds[1]
-                and set(ops[preds[0]].qubits) == set(ops[i].qubits)):
-            chain_next[preds[0]] = i
-            chain_prev[i] = preds[0]
+        a, b = _q0[i], _q1[i]
+        pa = last2q_by_q.get(a)
+        pb = last2q_by_q.get(b)
+        if (pa is not None and pa == pb
+                and {_q0[pa], _q1[pa]} == {a, b}):
+            # 沿链尾延伸（pa 可能是链成员——回溯版语义：挂在前驱
+            # 之后；直接挂链头会覆盖已有链成员、破坏链）
+            tail = pa
+            while chain_next[tail] != -1:
+                tail = chain_next[tail]
+            chain_next[tail] = i
+            chain_prev[i] = tail
+            continue
+        last2q_by_q[a] = i
+        last2q_by_q[b] = i
 
     deps = [set() for _ in range(m)]
     last_2q = {}
