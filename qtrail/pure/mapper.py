@@ -79,23 +79,42 @@ class PureMapper:
         注意：触及上限的候选**可以**胜出，因为后处理栈能把置换内容吸收
         到 0，截断值不惩罚、只截断——这是该管线的实测特性，勿改上限）。
         胜者最终路由用全预算（永不截断，任何规模必出映射方案）。
+
+        2026-11-13 RL 覆盖巨型线路（用户要求不降级到贪心）：
+        门数 > 2 万时评分种子 16→2（胜者交付仍全种子重路由——评分
+        噪声由交付补偿）+ 候选池截断。hwb12 级 51 万门评分从
+        ~23 分钟降至 ~3 分钟。
         """
+        huge = len(circ.ops) > 20000
         cap = 20000 if graph.n > 50 else 100000
+        if huge:
+            cap = 10_000_000  # 巨型线路评分不截断（截断 raise 后
+                              # 触顶即淘汰该候选——见下）
+            candidates = candidates[:4]
+            seeds = min(2, self.routing_seeds)
+        else:
+            seeds = self.routing_seeds
         scored = []
         for pi in candidates:
             layout = {i: int(pi[i]) for i in range(graph.n)}
             best_entry = None
-            for rseed in (self.seed + k for k in range(self.routing_seeds)):
-                routed, swaps, _ = sabre_route(circ, self.spec, layout,
-                                               seed=rseed, lam_ms=self.lam_ms,
-                                               max_swaps=cap)
+            for rseed in (self.seed + k for k in range(seeds)):
+                try:
+                    routed, swaps, _ = sabre_route(circ, self.spec, layout,
+                                                   seed=rseed,
+                                                   lam_ms=self.lam_ms,
+                                                   max_swaps=cap)
+                except RuntimeError:
+                    # 触顶（巨型线路路由预算不足）：该候选淘汰
+                    continue
                 m = pure_metrics(routed, swaps, self.spec.calib,
                                  predictor=self.fidelity_predictor)
                 entry = (m["swap_count"], m["depth"],
                          m["est_fidelity"], pi)
                 if best_entry is None or entry[1] < best_entry[1]:
                     best_entry = entry
-            scored.append(best_entry)
+            if best_entry is not None:
+                scored.append(best_entry)
         return scored
 
     def _v5_not_worse(self, m_v5, m_v4) -> bool:
@@ -354,10 +373,12 @@ class PureMapper:
                                     circuit_id=circuit_id,
                                     temporal_alpha=self.cfg.graph.temporal_alpha)
         self._full_result = None
-        # 重电路布局降级（2026-11-13）：门数 > 2 万时跳过 RL 布局
-        # （GAT 多起点解码墙钟 40+ 分钟/条，hwb10 实测 RL≈平凡布局无
-        # 质量收益），直接用贪心图匹配布局——hwb 类 bench 超时的真凶
-        if len(circ.ops) > 20000:
+        # RL 布局覆盖巨型线路（2026-11-13，用户要求不降级）：
+        # 评分成本控制后（_score_candidates 巨型线路种子 16→2+
+        # 候选池截断，hwb12 级 ~3 分钟）不再需要贪心降级——
+        # 贪心降级是 hwb 类 10 万 swap 与 medium 大败的根因之一。
+        # 仅 >100 万门保留降级兜底（hwb12 51.4 万门走 RL）。
+        if len(circ.ops) > 1_000_000:
             from qtrail.pure.layout import greedy_graph_match_layout
             pi = greedy_graph_match_layout(circ, self.spec)
         elif self.pipeline in ("v5", "v6") and self.full_eval \
