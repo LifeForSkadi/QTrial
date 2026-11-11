@@ -646,7 +646,12 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         if la is not None:
             inv[b] = la
         if swap_count > max_swaps:
-            break
+            # 2026-11-13 审查代理 P1 修复：触顶不再静默截断（丢弃
+            # 剩余门产生语义错误的半线路——hwb12 51 万门只发射
+            # 前缀的根因），改为显式拒绝交付。
+            raise RuntimeError(
+                f"sabre_route swap 触顶 {max_swaps}——线路需要更多"
+                f"路由预算，调用方须提高 max_swaps 或降级线路")
 
     for inst in circ.measures:
         out.append(Inst("measure", (pos[inst.qubits[0]],), cbits=inst.cbits))

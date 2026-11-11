@@ -36,7 +36,8 @@ class PureMapper:
                  selection_rule="swap", lam_ms=0.0, use_post=True,
                  routing_seeds=1, fidelity_predictor=None,
                  pipeline: str = "v4", full_eval: bool = True,
-                 full_eval_max_n: int = 50, full_eval_topk: int = 6):
+                 full_eval_max_n: int = 50, full_eval_topk: int = 6,
+                 fold_keep_on: bool = True):
         from qtrail.config import Config
         self.spec = spec
         self.policy = policy
@@ -59,6 +60,7 @@ class PureMapper:
         self.full_eval = full_eval
         self.full_eval_max_n = full_eval_max_n
         self.full_eval_topk = full_eval_topk
+        self.fold_keep_on = fold_keep_on
         self._full_result = None
         self._rng = np.random.default_rng(seed)
         self._dist_eff_cache = {}
@@ -187,8 +189,13 @@ class PureMapper:
     def _v5_pipeline(self, routed, final_layout, circ, noise_lambda,
                      with_learned: bool = True, with_resynth: bool = True,
                      relabel_budget: float | None = 25.0,
-                     full_resynth: bool = False):
+                     full_resynth: bool = False,
+                     pre_folded=None):
         """v5 后处理栈（含非劣化开关）。返回 (routed, final_layout, final_qc)。
+
+        pre_folded=(circ, fin)：post_route 前 fold_keep 产物（审查代理
+        修复版），作为候选 2b 参与评分——坐标系干净（无 push_swaps
+        推挤污染）。
 
         with_learned=False 跳过 L3、with_resynth=False 跳过 A2 块重合成、
         relabel_budget=None 跳过全局重标记（候选评分用：耗时大头在
@@ -232,13 +239,10 @@ class PureMapper:
             for k, v in flb.items():
                 flb[k] = int(fold_arr[int(v)])
             cands.append((folded, flb))
-        # 候选 2b（2026-11-13）：前向 swap 吸收（qiskit ApplyLayout
-        # 语义——删 swap、门坐标已含效果、产物全相邻零链化；
-        # 紧凑子空间验证 fid=1.00000000）。heis N16 实测比候选 2
-        # 好 20%（1Q 819 vs 1024、cz 91 vs 138），swap 越多收益越大
-        # （hwb12 类 10 万 swap 零成本）。
-        fk, fin_k = fold_keep_coords(routed, final_layout)
-        cands.append((fk, fin_k))
+        # 候选 2b（2026-11-13）：post_route 前 fold_keep 产物
+        # （审查代理 P0 修复版——最终坐标重标记，非空验 fid=1.0）
+        if pre_folded is not None:
+            cands.append(pre_folded)
         # 候选 3：裸路由（v4 行为，永远合法）
         cands.append((routed.copy(), dict(final_layout)))
         # 代理评分选优（分解后指标 + 决胜规则）
@@ -369,11 +373,29 @@ class PureMapper:
             routed, final_layout, final_qc, removed = self._full_result
             swaps = routed.count("swap")
         else:
+            # 2026-11-13 审查代理 P1 修复：巨型线路（hwb12 类 10 万+
+            # swap）给足路由预算——默认 10 万触顶 raise（不再静默
+            # 截断半线路）
+            max_swaps = (10_000_000 if len(circ.ops) > 20000
+                         else 100_000)
             routed, swaps, final_layout = sabre_route(
                 circ, self.spec, layout, seed=self.seed, lam_ms=self.lam_ms,
                 trials=max(1, self.routing_seeds),
-                mix_rollout=(circ.n > 10))
+                mix_rollout=(circ.n > 10), max_swaps=max_swaps)
             removed = 0
+            # 候选 2b 前置（post_route 前坐标系干净——审查代理要求）
+            # 相邻性守卫（2026-11-13）：最终布局下门不一定相邻
+            # （swap 穿越后"执行时相邻"≠"最终布局相邻"，hwb12 实测
+            # 15.7 万非相邻）——非相邻则退出候选（保守路径兜底）
+            from qtrail.pure.post_v2 import fold_keep_coords
+            pre_folded = None
+            if self.fold_keep_on:
+                fk_c, fk_fin = fold_keep_coords(routed, final_layout,
+                                                layout)
+                if all(i.nq != 2 or spec.adj[int(i.qubits[0]),
+                                             int(i.qubits[1])]
+                       for i in fk_c.ops):
+                    pre_folded = (fk_c, fk_fin)
             if self.use_post:
                 # 硬件连通性感知后处理（2026-11-09）：产物 2Q 门全部落在
                 # 耦合图上，保证平台可执行
@@ -386,7 +408,8 @@ class PureMapper:
                 # v6 = v5 + A2 全量版（full_resynth，逐块保真度守卫）
                 routed, final_layout, final_qc = self._v5_pipeline(
                     routed, final_layout, circ, noise_lambda,
-                    full_resynth=(self.pipeline == "v6"))
+                    full_resynth=(self.pipeline == "v6"),
+                    pre_folded=pre_folded)
             else:
                 final_qc = decompose_to_platform(routed)
         metrics = pure_metrics(final_qc, routed.count("swap"),

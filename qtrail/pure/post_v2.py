@@ -1350,28 +1350,46 @@ def fold_only(circ: Circuit):
 
 
 # ------------------------------------------- A5：长程门链化（独立 pass）
-def fold_keep_coords(circ: Circuit, final_layout: dict):
-    """A4+ 组件：前向 swap 吸收（2026-11-13，qiskit ApplyLayout 语义）。
+def fold_keep_coords(circ: Circuit, final_layout: dict,
+                     init_layout: dict | None = None):
+    """A4+ 组件：swap 吸收 + 最终坐标重标记（2026-11-13，审查代理
+    P0 修复版——qiskit VF2PostLayout/ApplyLayout 语义的正确实现）。
 
-    路由输出的门坐标已含 swap 效果（sabre_route 的 swap 插入即更新
-    布局映射）——直接删 swap、门不动 = 语义保持（紧凑子空间验证
-    fid=1.00000000）且产物全相邻（路由保证执行时相邻）。
-    与 fold_only 的差异：fold_only 逆向折回初始布局坐标（供
-    relabel 固定置换用），本组件保持最终布局坐标（零链化零展开，
-    qiskit VF2PostLayout 同款语义——hwb12 类 10 万 swap 零成本）。
+    审查发现（2026-11-13）："删 swap + 门不动"只保留发射时刻坐标，
+    同一逻辑比特的多个门标签随时间漂移——交付判据要求每个逻辑
+    比特固定在最终坐标。正确语义 = 重放 swap 维护 content[p]
+    （物理位 p 的当前逻辑比特），门坐标 p → fin[content[p]]
+    （最终布局坐标）。
+
+    关键：content 初始 = init_layout 的逆（初始布局时物理位上的
+    逻辑比特；缺省恒等），重放全部 swap 后收敛到 final_layout
+    的逆（自洽）。审查代理玩具实验 [x(0),swap(0,1),cx(1,2)] +
+    fl={0:1,1:0,2:2}：旧版 fid=0、本版 fid=1.0。
 
     返回 (new_circ, fin)：fin[逻辑 i] = 最终物理位（= final_layout）。
     """
+    fl = dict(final_layout)
+    init = dict(init_layout) if init_layout else {i: i
+                                                  for i in range(circ.n)}
+    content = {p: -1 for p in range(circ.n)}
+    for log, phys in init.items():
+        content[int(phys)] = int(log)
     out = []
     for inst in circ.ops:
         if inst.name == "swap":
+            a, b = int(inst.qubits[0]), int(inst.qubits[1])
+            content[a], content[b] = content[b], content[a]
             continue
-        out.append(inst)
+        qs = tuple(int(fl.get(content[int(q)], content[int(q)]))
+                   for q in inst.qubits)
+        out.append(Inst(inst.name, qs, inst.params))
     new_circ = Circuit(circ.n, name=circ.name)
     new_circ.ops = out
+    # measure 原样（路由器已在最终坐标发射 measure——审查代理确认）
     for m_ in circ.measures:
-        new_circ.measures.append(m_)
-    return new_circ, dict(final_layout)
+        new_circ.measures.append(
+            Inst("measure", m_.qubits, cbits=m_.cbits))
+    return new_circ, fl
 
 
 def chain_long_gates(circ: Circuit, spec, d_max: int | None = None):

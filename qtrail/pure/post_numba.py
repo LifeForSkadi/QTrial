@@ -200,8 +200,11 @@ def _rebuild(ops, nm, nq0, nq1, src):
         inst = ops[s]
         code = int(nm[k])
         name = _CODE_TO_NAME.get(code, inst.name)
+        # 2026-11-13 审查代理 P1 修复：单比特判定按源门 nq
+        # （原实现只认 U3/U1 编码——rz/sx/x/h 编码 UNK 走 2Q 分支
+        # 产生 (q, -1) 腐蚀：twoq 虚增、adj[-1] 负索引回绕）
         out.append(Inst(name,
-                        (int(nq0[k]),) if code in (U3, U1) else
+                        (int(nq0[k]),) if inst.nq == 1 else
                         (int(nq0[k]), int(nq1[k])),
                         inst.params))
     return out
