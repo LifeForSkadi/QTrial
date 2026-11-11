@@ -248,22 +248,25 @@ def post_route(circ: Circuit, final_layout: dict,
 
 
 def merge_adjacent_rz(circ: Circuit) -> int:
-    """相邻 rz 角度合并（qiskit 1Q 优化的对应物）。返回合并次数。"""
+    """相邻 rz 角度合并（qiskit 1Q 优化的对应物）。返回合并次数。
+
+    2026-11-13 性能修复：原 while changed + del ops[i+1] 为 O(n²)
+    （每次 del 搬移整个尾部——hwb12 分解后 ~200 万门下爆炸，
+    两次 1800s 超时）。改为单遍收集式（左结合尾合并，语义等价，
+    O(n)）。"""
     ops = circ.ops
     merged = 0
-    changed = True
-    while changed:
-        changed = False
-        i = 0
-        while i < len(ops) - 1:
-            a, b = ops[i], ops[i + 1]
-            if a.name == "rz" and b.name == "rz" and a.qubits == b.qubits:
-                ops[i] = Inst("rz", a.qubits, (a.params[0] + b.params[0],))
-                del ops[i + 1]
-                merged += 1
-                changed = True
-                continue
-            i += 1
+    out = []
+    for inst in ops:
+        if out and inst.name == "rz" and out[-1].name == "rz" \
+                and out[-1].qubits == inst.qubits:
+            out[-1] = Inst("rz", inst.qubits,
+                           (out[-1].params[0] + inst.params[0],))
+            merged += 1
+        else:
+            out.append(inst)
+    if merged:
+        circ.ops = out
     circ._deps = None
     return merged
 

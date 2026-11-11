@@ -35,6 +35,10 @@ def find_circuit(name):
         n = f"bp_{p.parent.name}_{p.stem}"
         if n == name:
             return p
+    # mqtbench/stratified 数据源（graphstate_25 等）
+    p = Path("data/mqtbench/stratified") / f"{name}.qasm"
+    if p.exists():
+        return p
     return None
 
 
