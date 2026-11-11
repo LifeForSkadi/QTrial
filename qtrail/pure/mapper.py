@@ -199,7 +199,8 @@ class PureMapper:
         from qtrail.pure.post_v2 import (
             collect_resynthesize_2q_blocks,
             collect_resynthesize_2q_blocks_full, decompose_to_platform_v2,
-            fold_and_relink, fold_only, learned_relabel, noise_aware_relabel)
+            fold_and_relink, fold_keep_coords, fold_only, learned_relabel,
+            noise_aware_relabel)
         routed_v4 = routed.copy()
         fin_v4 = dict(final_layout)
         final_qc_v4 = decompose_to_platform(routed_v4)
@@ -231,6 +232,13 @@ class PureMapper:
             for k, v in flb.items():
                 flb[k] = int(fold_arr[int(v)])
             cands.append((folded, flb))
+        # 候选 2b（2026-11-13）：前向 swap 吸收（qiskit ApplyLayout
+        # 语义——删 swap、门坐标已含效果、产物全相邻零链化；
+        # 紧凑子空间验证 fid=1.00000000）。heis N16 实测比候选 2
+        # 好 20%（1Q 819 vs 1024、cz 91 vs 138），swap 越多收益越大
+        # （hwb12 类 10 万 swap 零成本）。
+        fk, fin_k = fold_keep_coords(routed, final_layout)
+        cands.append((fk, fin_k))
         # 候选 3：裸路由（v4 行为，永远合法）
         cands.append((routed.copy(), dict(final_layout)))
         # 代理评分选优（分解后指标 + 决胜规则）

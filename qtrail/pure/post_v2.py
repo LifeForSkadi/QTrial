@@ -1350,6 +1350,30 @@ def fold_only(circ: Circuit):
 
 
 # ------------------------------------------- A5：长程门链化（独立 pass）
+def fold_keep_coords(circ: Circuit, final_layout: dict):
+    """A4+ 组件：前向 swap 吸收（2026-11-13，qiskit ApplyLayout 语义）。
+
+    路由输出的门坐标已含 swap 效果（sabre_route 的 swap 插入即更新
+    布局映射）——直接删 swap、门不动 = 语义保持（紧凑子空间验证
+    fid=1.00000000）且产物全相邻（路由保证执行时相邻）。
+    与 fold_only 的差异：fold_only 逆向折回初始布局坐标（供
+    relabel 固定置换用），本组件保持最终布局坐标（零链化零展开，
+    qiskit VF2PostLayout 同款语义——hwb12 类 10 万 swap 零成本）。
+
+    返回 (new_circ, fin)：fin[逻辑 i] = 最终物理位（= final_layout）。
+    """
+    out = []
+    for inst in circ.ops:
+        if inst.name == "swap":
+            continue
+        out.append(inst)
+    new_circ = Circuit(circ.n, name=circ.name)
+    new_circ.ops = out
+    for m_ in circ.measures:
+        new_circ.measures.append(m_)
+    return new_circ, dict(final_layout)
+
+
 def chain_long_gates(circ: Circuit, spec, d_max: int | None = None):
     """A5 组件：非相邻 2Q 门 LNN 链化（噪声感知选路；cz 用 H 包裹）。
 
