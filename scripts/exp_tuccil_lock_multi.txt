@@ -1,0 +1,6 @@
+h25: n=25 路由 1769 门 swap=64 (0s)
+h25 lock=0: 1Q=2310 cz=360 total=2670 depth=727 tu_locked=0 (247s)
+h25 lock=1: 1Q=2310 cz=360 total=2670 depth=727 tu_locked=676 (226s)
+qv34: n=34 路由 25818 门 swap=964 (0s)
+qv34 lock=0: 1Q=26547 cz=4568 total=31115 depth=4897 tu_locked=0 (152s)
+qv34 lock=1: 1Q=26547 cz=4568 total=31115 depth=4897 tu_locked=423 (135s)

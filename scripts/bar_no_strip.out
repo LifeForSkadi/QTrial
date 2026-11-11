@@ -1,0 +1,6 @@
+[square_heisenberg_N16] 基线(strip)=1024 no_strip=1024（20s） 比值=1.000 → 未达标
+  no_strip {'rz': 543, 'sx': 481, 'cz': 138}
+[square_heisenberg_N25] 基线(strip)=1684 no_strip=1684（34s） 比值=1.000 → 未达标
+  no_strip {'rz': 889, 'sx': 795, 'cz': 226}
+[qft_N020] 基线(strip)=3522 no_strip=3644（12s） 比值=1.035 → 未达标
+  no_strip {'rz': 1942, 'sx': 1702, 'cz': 879}

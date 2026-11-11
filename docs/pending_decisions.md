@@ -789,3 +789,115 @@ qaoa/adder 大胜 100x 级 = 噪声感知重标记）。1Q 差距 768 vs 468
 **验证体系**：紧凑子空间法（verify_e2e_production.py，fin 嵌入
 交付判据）+ 合法性三重扫描 + measure 检查；审查代理可再次调用
 （Agent general-purpose，按 docs/post_pipeline_correctness.md 框架）。
+
+### -5 补充二十四（2026-11-13，相位多项式侦察：数学先行成果 + H 优先消解预注册）
+
+**git**：a34c700（布局降级+路由上界修复+bench 重试）、
+0d20d28（相位多项式侦察文档+脚本）。生产代码未动。
+
+**今日侦察结论（全部实验在 heisenberg N16，同口径 qiskit O3 对照）**：
+1. 恒等式验证 31/32 通过（scripts/verify_phase_poly_identities.py；
+   唯一失败 = 预期反例 P7：sx 穿 cz 不封闭）。纠正 2 个记忆错误：
+   P5 组（H 目标位共轭 CNOT → CZ 而非方向翻转）、B4 kron 比特序。
+2. 四连否决（台账 #11-#14）：
+   - 全局 rz 重排：理想跨段合并 389→363（3.5%）——rz 被 sx 锁死
+     （A11 反例：rz 穿 sx 不是角度翻转）→ 判据 5% 不达标，否决
+   - H 行走：B1（H 穿 cz → CNOT 骨架破坏）——无 cz 域封闭行走，否决
+   - 4 门 u3 模板：2 参数族非通用，否决
+   - A2=膨胀源假设否证：A2 实测 790→736（−54 门），A2 是减 1Q 的
+3. **差距定位**（diag_block_density/diag_a2_ablate）：1Q 736 vs qiskit
+   489。A2 off 产物 H 块 = 0——**不动点循环把 H 混入 u3 合成销毁**。
+   qiskit pass 顺序 = H 对消先行/1Q 合成后行（CommutativeCancellation
+   在 Optimize1qGates 前）；我们的循环 merge_1q_runs 在
+   _cancel_adjacent_h/_absorb_h 之前跑。
+4. **下一攻坚（预注册中）**：H 优先消解（docs/phase_polynomial_design.md
+   §3）——循环重排序：_cancel_adjacent_h/_absorb_h 提前到
+   merge_1q_runs 之前 + rx 符号门池（H·rz·H → rx 保留、rx·rx 合并、
+   收尾展开 4 门）。判据：3 线路（heis N16/N25/qft N20）bar +≥5%、
+   语义 fid=1.0。实验 scripts/diag_h_first.py v2（零滑动先行）。
+   零滑动 <5% → 加滑动版；再 <5% → 否决换上游模板改造。
+
+**后台任务**：合法性 11 分片（m2/l1/l2/l3 在跑，零非法）；
+retry 补跑（hwb11 ✓ 合法、hwb12 跑中）；6 条 timeout 线路。
+
+**新文档**：docs/correctness_theorems.md（T1-T4 定理层 + 机制-结构
+映射 + 分布外测试清单 §3——承诺已久，已交付）。
+
+### -5 补充二十五（2026-11-13，1Q 攻坚第二阶段：六连否决后的定位）
+
+**git**：4335512（H 优先消解裁决）。生产代码干净。
+
+**裁决完成（台账 #15）**：H 优先消解预注册判据 3 条全未达标
+（N16 −0.8%、N25 −3.1%、qft +2.2%），h_first 已回退。零角省略
+A/B（bar_no_strip）：N16 比值 1.000 完全无影响（不动点免疫，
+台账 #6 同型）。
+
+**膨胀链诊断（diag_upstream_1q，heisenberg N16）**：
+- 原始线路：1Q=736（u3 576 + u1 160）+ cx 288——**原始 1Q 就密集**
+- sabre 后 +16 swap；fold 后**完全不变**（fold 不产生额外 cx）
+- 我们最终：1Q 736（=原始数）+ cz 72（A2 压缩 4 倍）
+- qiskit O3：1Q 489（sx 313 + rz 175）+ cz 126
+- **差距主体 = rz 214（389 vs 175）**：合并率 4.9x vs 10.8x。
+  机制 = 我们的不动点循环在"rz 穿走-merge 合成"间振荡
+  （穿走的 rz 被 merge 合成回 u3 → 分解 → 边界 rz 再现）；
+  qiskit = 线性 pass 顺序（CommutativeCancellation 全深度 →
+  Optimize1qGates 合成 → 不回头）。
+
+**下一候选（预注册中）**：线性化 pass 顺序——全深度 commute
+（rz 穿 cz 至不动点）在 merge 合成**前**、单遍不回头的线性语义
+（与 h_first 的每轮 1 层不同：全深度 + 不循环回头）。
+若死 → 组合网格搜索（strip/commute 深度/收集顺序/特例开关）。
+**注意**：v4 实验的 10 层深推坏合成（1741）是"循环回头"语境；
+线性化单遍语义未测。
+
+**合法性**：561/587 合法、零非法；retry 4/6（剩 graphstate_25、
+trotter4）；分片 m2/l2 重启续跑中。
+
+**后台**：m2（bknpwnu6i）、l2（b7913840b）、retry（b5b0trtcm）、
+no_strip（bfolzh37b）。
+
+### -5 补充二十六（2026-11-13，决定性定位：差距 100% 在后处理）
+
+**qiskit 后处理解剖（diag_qiskit_post_on_ours）**：把我们的 fold 后
+线路（u3 576 + cx 288 + u1 160 + swap 16）喂 qiskit O3 后处理
+（1 秒）：**1Q=482、cz=117**。我们管线同输入：1Q=736、cz=72。
+qiskit 自路由对照：489/126。
+
+**结论**：qiskit 后处理处理我们的上游输入比我们好 254 门（35%）——
+**1Q 差距 100% 在后处理机制，不在路由结构**（之前"上游模板"假设
+否证）。零角省略 A/B（bar_no_strip）同时裁决：N16/N25 无影响、
+qft 变差——否决。
+
+**解剖进行中**（diag_qiskit_pass_ablate）：O3 pass 子集化
+（E 仅 O1qGates / B +Comm / D 无 CommAnalysis / C 无 CommCancel）
+定位贡献主体。候选：CommutationAnalysis + Optimize1qGates 的
+跨 cz 收集语义（我们 merge_1q_runs 仅段内）。
+
+**教训（对用户建议的采纳）**：不用 sleep 轮询后台任务——任务完成
+自动通知唤醒；sleep 只用于短暂等待（<60s）。
+
+### -5 补充二十七（2026-11-13，O3 解剖收官 + H 组 v2 收编候选）
+
+**git**：未提交（待收尾）。
+
+**决定性定位链（全部实验完成）**：
+1. qiskit O3 处理我们的 fold 后线路 = 482（我们 736）——差距
+   100% 在后处理（diag_qiskit_post_on_ours）。
+2. O3 优化循环解剖（builtin_plugins.py 源码）：
+   TwoQubitPeephole → RemoveIdentityEquivalent →
+   Optimize1qGatesDecomposition → CommutativeCancellation（Rust，
+   H/X/Z/CX/CZ 自逆门通勤聚拢对消）→ 最小点停止；
+   循环后 VF2PostLayout（= 我们的 relabel_vf2）。
+3. 我们循环轨迹（diag_loop_trace）：4333→1752 单调递减无过冲
+   （最小点=固定点，早停候选死）。
+4. H 优先组 v2（仅 H 组件无 commute）：3 条全增益
+   （−3.3/−2.6/−0.4%）未达 5% 判据——收编候选（#17）。
+5. 零角省略开关：无影响/变差——保持现状（#16）。
+
+**收编待办**：h_first v2 参数保留在 post_v2.py（h_first 参数，
+默认 False）——完整管线 3 线路 bar + fid 验证后决定默认开启。
+
+**254 差距的最终定位**：CommutativeCancellation 的 H/X/Z 自逆门
+全局对消（我们只有相邻版）+ 全深通勤聚拢 + euler 多候选——
+单机制判据 9 连不达标（#11-#17），差距 = pass 组合智慧的累积。
+**下一步选项**：a) 收编 v2 + 组合继续；b) 转向报告书/分布外测试。

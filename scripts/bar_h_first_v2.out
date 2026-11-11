@@ -1,0 +1,6 @@
+[square_heisenberg_N16] 基线=1024 h_first_v2=990（18s） 比值=0.967 → 未达标
+  h_first_v2 {'rz': 522, 'sx': 468, 'cz': 137}
+[square_heisenberg_N25] 基线=1684 h_first_v2=1640（37s） 比值=0.974 → 未达标
+  h_first_v2 {'rz': 858, 'sx': 782, 'cz': 230}
+[qft_N020] 基线=3522 h_first_v2=3508（6s） 比值=0.996 → 未达标
+  h_first_v2 {'rz': 1844, 'sx': 1663, 'cz': 885, 'x': 1}

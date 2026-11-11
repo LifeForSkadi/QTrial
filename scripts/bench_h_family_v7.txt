@@ -1,0 +1,2 @@
+bp_square-heisenberg_square_heisenberg_N16: v7=3.3270e-01 RL+O3=0.4455748722027013 比值=0.747x swaps=0 depth=260 (887s)
+bp_square-heisenberg_square_heisenberg_N25: v7=1.5769e-01 RL+O3=0.24451163432382247 比值=0.645x swaps=0 depth=313 (1564s)

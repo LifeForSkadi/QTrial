@@ -1456,7 +1456,8 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
                              final_tuccil: bool = False,
                              final_min_gate: int = 5,
                              final_gate_guard: bool = False,
-                             max_rounds: int = 12) -> Circuit:
+                             max_rounds: int = 12,
+                             h_first: bool = False) -> Circuit:
     """v5 平台基分解：v4 分解（cx→H-CZ-H、swap→3cx、u3→rzsx）+ 1Q 优化
     不动点循环（对标 qiskit Optimize1qGates + 交换消除）。
 
@@ -1483,6 +1484,16 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
         changed = False
         _sort_segment_1q(out.ops)   # 段内重排：同比特游程相邻，
                                     # merge 才能吃跨比特段的长游程
+        if h_first:
+            # H 优先组 v2（实验参数，2026-11-13）：仅 H 组件——
+            # 滑动聚拢 + H·H 对消 + H·rz·H → rx（qiskit
+            # CommutativeCancellation 的 H 自逆对消语义）。
+            # 不含 commute（台账 #6：深层推挤坏合成——h_first v1
+            # 失败原因）。恒等式：B4/B5/C3，全精确。
+            slide_1q_through(out.ops)
+            _cancel_adjacent_h(out.ops)
+            _absorb_h(out.ops)
+            _strip_identity_1q(out.ops)
         _merge_sx_pairs(out.ops)    # sx·sx = x（每轮消化）
         slide_x_through_cz(out.ops, max_rounds=4)  # x 穿 cz 打通段边界
         if merge_1q_runs(out.ops) > 0:

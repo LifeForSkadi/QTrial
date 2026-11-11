@@ -1,0 +1,7 @@
+路由: 1062 门 swap=38
+re=1: 1Q=1301 cz=199 total=1500 depth=522 (136s)
+re=2: 1Q=1391 cz=211 total=1602 depth=558 (140s)
+re=3: 1Q=1408 cz=218 total=1626 depth=584 (132s)
+re=4: 1Q=1399 cz=222 total=1621 depth=594 (124s)
+re=6: 1Q=1446 cz=224 total=1670 depth=604 (133s)
+re=12: 1Q=1577 cz=202 total=1824 depth=635 (130s)

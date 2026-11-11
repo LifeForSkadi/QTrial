@@ -86,3 +86,22 @@ H 控制位穿 cz → CNOT 方向翻转）。
     （每 cz 1Q 密度 10.2 vs qiskit 3.9）与 rz 被 sx 锁死的
     结构事实（A11 反例）。**下一攻坚 = 上游模板改造（fold 后
     cx 结构与原始线路的对照诊断先行）。**
+
+16. **零角省略开关**（2026-11-13 裁决）：_u3_to_rzsx_min 的
+    零角省略关掉后 N16/N25 产物逐门相同、qft 变差 3.5%——
+    省略无害且 qft 有益。**结论：保持现状（死路已排除）。**
+
+## 部分收益（收编候选，判据未达标但全增益无风险）
+
+17. **H 优先组 v2（仅 H 组件：滑动+H·H 对消+H·rz·H→rx，
+    无 commute）**（2026-11-13 裁决）：3 线路全增益
+    N16 −3.3%、N25 −2.6%、qft −0.4%，无变差线路——但全部
+    未达 +5% 预注册判据。v1 失败因混入 commute 深层推挤
+    （台账 #6 重现）。**结论：不达标不立为机制；作为无风险
+    微改进收编候选（h_first 参数保留，完整管线验证后决定
+    默认开关）。** qiskit O3 序列解剖（builtin_plugins.py）：
+    循环 = TwoQubitPeephole → RemoveIdentityEquivalent →
+    Optimize1qGatesDecomposition → CommutativeCancellation →
+    最小点停止；我们循环组件等价但 CommutativeCancellation
+    的 H/X/Z 自逆门全局对消我们只有相邻版——254 差距的
+    定位即此（482 vs 736 同输入）。

@@ -1,0 +1,12 @@
+前置A2块数=59 2Q数分布: [8, 6, 6, 6, 6, 6, 10, 6, 6, 6, 6, 6]
+Timeout (0:01:00)!
+Thread 0x00009b3c (most recent call first):
+  <no Python frame>
+
+Thread 0x0000eaa0 (most recent call first):
+  File "C:\Users\SKADI\AppData\Roaming\Python\Python313\site-packages\torch\autograd\graph.py", line 869 in _engine_run_backward
+  File "C:\Users\SKADI\AppData\Roaming\Python\Python313\site-packages\torch\autograd\__init__.py", line 381 in backward
+  File "C:\Users\SKADI\AppData\Roaming\Python\Python313\site-packages\torch\_tensor.py", line 631 in backward
+  File "F:\Study\Quantum Computing\\u4fe1\u5b89\u7ade\u8d5b\QTrial\qtrail\pure\synthesis.py", line 383 in fit_block_torch
+  File "F:\Study\Quantum Computing\\u4fe1\u5b89\u7ade\u8d5b\QTrial\qtrail\pure\post_v2.py", line 774 in collect_resynthesize_2q_blocks
+  File "<string>", line 36 in <module>

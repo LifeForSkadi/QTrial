@@ -1,0 +1,13 @@
+进入 v5 分解
+Timeout (0:01:30)!
+Thread 0x000066bc (most recent call first):
+  <no Python frame>
+
+Thread 0x00012284 (most recent call first):
+  File "C:\Users\SKADI\AppData\Roaming\Python\Python313\site-packages\torch\autograd\graph.py", line 869 in _engine_run_backward
+  File "C:\Users\SKADI\AppData\Roaming\Python\Python313\site-packages\torch\autograd\__init__.py", line 381 in backward
+  File "C:\Users\SKADI\AppData\Roaming\Python\Python313\site-packages\torch\_tensor.py", line 631 in backward
+  File "F:\Study\Quantum Computing\\u4fe1\u5b89\u7ade\u8d5b\QTrial\qtrail\pure\synthesis.py", line 362 in _cached_3cx_params
+  File "F:\Study\Quantum Computing\\u4fe1\u5b89\u7ade\u8d5b\QTrial\qtrail\pure\post_v2.py", line 773 in collect_resynthesize_2q_blocks
+  File "F:\Study\Quantum Computing\\u4fe1\u5b89\u7ade\u8d5b\QTrial\qtrail\pure\post_v2.py", line 1508 in decompose_to_platform_v2
+  File "<string>", line 31 in <module>

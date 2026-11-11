@@ -1,9 +1,26 @@
 # 相位多项式机制设计文档（CZ 域 1Q 优化）
 
-状态：**已裁决**（2026-11-13）。预注册判据 3 条全未达标——
-H 优先消解否决（台账 #15）。文档保留为完整侦察记录：
-恒等式集（35 项验证）→ 5 条机制否决（#11-#15）→ 差距定位。
-下一攻坚 = 上游模板改造（fold 后 cx 结构对照诊断先行）。
+状态：**第二阶段**（2026-11-13）。第一阶段 H 优先消解否决（#15）。
+决定性定位：qiskit O3 后处理处理我们的 fold 后线路 = 482 vs 我们
+736——差距 100% 在后处理。O3 序列解剖（builtin_plugins.py 源码）：
+
+```
+O3 优化循环（至最小点）:
+  TwoQubitPeepholeOptimization（2Q 块合成，每轮）
+  RemoveIdentityEquivalent
+  Optimize1qGatesDecomposition（= Collect1qRuns + 合成 u3 + euler 分解）
+  CommutativeCancellation（Rust：H/X/Z/CX/CZ 自逆门通勤聚拢对消）
+  ContractIdleWiresInControlFlow
+循环后: VF2PostLayout（我们有 relabel_vf2 等价物）
+```
+
+**候选机制（进行中）**：
+1. H 优先组 v2（仅 H 组件无 commute——h_first v1 失败因混入
+   commute 触发台账 #6）——bar 实验中。
+2. 最小点停止 vs 固定点（qiskit 循环到最小点停，我们到固定点——
+   "过冲"诊断 diag_loop_trace 进行中）。
+3. CommutativeCancellation 的 H/X/Z 自逆门全局对消（我们只有
+   相邻版 _cancel_adjacent_h）。
 
 ## 0. 问题定位
 

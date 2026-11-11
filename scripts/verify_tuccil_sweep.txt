@@ -1,0 +1,3 @@
+(A) 通用+sweep: 1Q=1294 cz=200 total=1494 depth=518 (28s)
+(C) 终Tuccil+无sweep: 1Q=1301 cz=200 total=1501 depth=522 (19s)
+(D) 终Tuccil+sweep: 1Q=1294 cz=200 total=1494 depth=518 (19s)

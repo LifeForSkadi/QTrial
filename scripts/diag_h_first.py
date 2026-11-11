@@ -85,12 +85,30 @@ def merge_adjacent(ops):
     return out
 
 
+def sort_segments(ops):
+    """段内按比特稳定分组（_sort_segment_1q 语义：不同比特 1Q 门对易，
+    同比特相对序保持——精确恒等式）。cz 切段。"""
+    out = []
+    seg = []
+    for inst in ops:
+        if inst.name == "cz":
+            out.extend(sorted(seg, key=lambda x: int(x.qubits[0])))
+            out.append(inst)
+            seg = []
+        else:
+            seg.append(inst)
+    out.extend(sorted(seg, key=lambda x: int(x.qubits[0])))
+    return out
+
+
 def zero_slide_h_first(ops, max_rounds=30):
-    """零滑动 H 优先：H 消解 pass ↔ rz/rx 合并 交替至稳定。"""
+    """排序驱动 H 优先：段内按比特分组（滑动等价，精确）→ rz/rx 合并
+    → H 窗口扫描 交替至稳定。"""
     ops = list(ops)
     for _ in range(max_rounds):
+        ops = sort_segments(ops)
+        ops = merge_adjacent(ops)
         ops2, na, nc = h_cancel_pass(ops)
-        ops2 = merge_adjacent(ops2)
         if ops2 == ops:
             return ops2, na, nc
         ops = ops2

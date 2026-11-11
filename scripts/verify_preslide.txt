@@ -1,0 +1,3 @@
+(A) 仅loop: 1Q=1301 cz=200 depth=522 (29s)
+(C) 前置A2无slide: 1Q=1269 cz=193 depth=505 (20s)
+(B) slide+前置A2: 1Q=1254 cz=187 depth=489 fid=1.000000 (42s)

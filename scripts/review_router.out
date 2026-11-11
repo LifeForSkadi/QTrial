@@ -1,0 +1,17 @@
+== A. 路由器契约与嵌入方向 ==
+  trial 0: fin嵌入 fid=1.000000 | π嵌入 fid=0.000000 | 置换非平凡=True | swaps=7
+  trial 1: fin嵌入 fid=1.000000 | π嵌入 fid=0.000000 | 置换非平凡=True | swaps=10
+  trial 2: fin嵌入 fid=1.000000 | π嵌入 fid=0.250000 | 置换非平凡=True | swaps=12
+  结论：fin 嵌入 fid 最大缺口=4.441e-16；π 嵌入在置换非平凡时 fid≠1（3/3 非平凡）→ docs A 的 I-语义表述（初始布局嵌入）不成立，紧凑子空间法测的是交付判据（fin 嵌入），方向正确
+== B. 防卡死逃逸（回卷 + BFS 推进）语义 ==
+  回卷恢复 pos/inv + BFS moves 语义一致: PASS
+== C. fold_and_relink 语义 + 保留 swap 相邻性 ==
+  h16 身份布局路由: 1076 门 swap=52
+  fold_and_relink 未采用（无收益），跳过
+== D. measure 标签一致性 ==
+  D1 吸收后: fin={0: 0, 1: 1, 2: 2, 3: 3}；measure 原属 logical 0（路由末端位置 1），现位置 0 按 fin^-1 属 logical 0
+    → 修复后行为：measure 跟随 content 到 logical 0 的读回位 ✓ 一致
+  D2 noise_aware_relabel 移动 0 次后 measure 仍在位置 0
+  D3 learned_relabel apply_pi 遍历 circ.ops 而不遍历 circ.measures: 未确认
+  结论（审查时点）：原始代码 v4 路径（post_route 吸收）+ C1/L3 重标记均不同步 measure 标签；仅 fold 系列路径重标记 measure。工作区已于 2026-11-13 修复三者（P1-1）。验证脚本（verify_e2e_production.py to_qc / check_legality）仍完全忽略 measure → 建议补 measure 检查后提交。
+DONE exit=0
