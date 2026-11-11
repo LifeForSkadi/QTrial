@@ -311,10 +311,13 @@ class PureMapper:
         scored = []
         for pi in candidates:
             layout = {i: int(pi[i]) for i in range(graph.n)}
+            # 巨型线路大预算（2026-11-13 RL 覆盖——评分路由不触顶）
+            max_swaps = (10_000_000 if len(circ.ops) > 20000
+                         else 100_000)
             routed, swaps, final_layout = sabre_route(
                 circ, self.spec, layout, seed=self.seed, lam_ms=self.lam_ms,
                 trials=max(1, self.routing_seeds),
-                mix_rollout=(circ.n > 10))
+                mix_rollout=(circ.n > 10), max_swaps=max_swaps)
             removed = 0
             if self.use_post:
                 routed, removed = post_route(routed, final_layout,
@@ -413,8 +416,8 @@ class PureMapper:
             if self.fold_keep_on:
                 fk_c, fk_fin = fold_keep_coords(routed, final_layout,
                                                 layout)
-                if all(i.nq != 2 or spec.adj[int(i.qubits[0]),
-                                             int(i.qubits[1])]
+                if all(i.nq != 2 or self.spec.adj[int(i.qubits[0]),
+                                                  int(i.qubits[1])]
                        for i in fk_c.ops):
                     pre_folded = (fk_c, fk_fin)
             if self.use_post:
