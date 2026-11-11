@@ -248,8 +248,16 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         for j in deps[i]:
             succ[j].add(i)
 
-    pos = {k: int(v) for k, v in layout.items()}
-    inv = {v: k for k, v in pos.items()}
+    # pos/inv 数组化（2026-11-12 numba 化前置）：字典 → 固定数组
+    # （pos[逻辑]=物理、inv[物理]=逻辑，-1 哨兵）——主循环的
+    # dict.get/pop/del 换成数组索引/赋值
+    pos = np.full(circ.n, -1, dtype=np.int64)
+    for k, v in layout.items():
+        pos[int(k)] = int(v)
+    inv = np.full(spec.n + 1, -1, dtype=np.int64)  # +1 容忍空位坐标
+    for log_i in range(circ.n):
+        if pos[log_i] >= 0:
+            inv[pos[log_i]] = log_i
     frontier = {i for i in range(m)
                 if not deps[i] and chain_prev[i] == -1
                 and chain_1q_owner[i] == -1}
@@ -307,11 +315,12 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
 
     def front_arrays(fset):
         """集合内 2Q 门的 (q1pos, q2pos) numpy 数组。"""
-        idx = [i for i in fset if len(ops[i].qubits) == 2]
+        idx = [i for i in fset if _nq[i] == 2]
         if not idx:
             return None
-        q1 = np.array([pos[ops[i].qubits[0]] for i in idx], dtype=np.int64)
-        q2 = np.array([pos[ops[i].qubits[1]] for i in idx], dtype=np.int64)
+        idx_arr = np.asarray(idx, dtype=np.int64)
+        q1 = pos[_q0[idx_arr]]
+        q2 = pos[_q1[idx_arr]]
         return q1, q2
 
     while frontier:
@@ -327,8 +336,8 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                                   f"cnt={cnt_af[s]} 在L1?={s in l1}",
                                   flush=True)
         exec_now = [i for i in frontier
-                    if len(ops[i].qubits) == 1
-                    or amat[pos[ops[i].qubits[0]], pos[ops[i].qubits[1]]]]
+                    if _nq[i] == 1
+                    or amat[pos[_q0[i]], pos[_q1[i]]]]
         if exec_now:
             since_exec = 0
             batch.clear()
@@ -356,11 +365,11 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                             executed.add(k)
                         if inst.nq == 1:
                             out.append(Inst(inst.name,
-                                            (pos[inst.qubits[0]],),
+                                            (int(pos[_q0[k]]),),
                                             inst.params))
                         else:
-                            p1 = pos[inst.qubits[0]]
-                            p2 = pos[inst.qubits[1]]
+                            p1 = int(pos[_q0[k]])
+                            p2 = int(pos[_q1[k]])
                             out.append(Inst(inst.name, (p1, p2),
                                             inst.params))
 
@@ -427,9 +436,9 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         # lookahead 层评分（qiskit rust 语义）：第 1 层门集的交换后距离和
         l1_cost = None
         if l1:
-            lq1 = np.array([pos[ops[i].qubits[0]] for i in l1],
+            lq1 = np.array([pos[_q0[i]] for i in l1],
                            dtype=np.int64)
-            lq2 = np.array([pos[ops[i].qubits[1]] for i in l1],
+            lq2 = np.array([pos[_q1[i]] for i in l1],
                            dtype=np.int64)
             l1_cost = after_dist_matrix(dist_flat, spec.n, lq1, lq2,
                                         ea_, eb_).sum(axis=1)
@@ -469,16 +478,16 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
             for (ra, rb) in reversed(batch):
                 out.ops.pop()
                 swap_count -= 1
-                la, lb = inv.get(ra), inv.get(rb)
-                if la is not None:
-                    inv.pop(ra, None)
+                la, lb = inv[ra], inv[rb]
+                if la >= 0:
+                    inv[ra] = -1
                     pos[la] = rb
-                if lb is not None:
-                    inv.pop(rb, None)
+                if lb >= 0:
+                    inv[rb] = -1
                     pos[lb] = ra
-                if la is not None:
+                if la >= 0:
                     inv[rb] = la
-                if lb is not None:
+                if lb >= 0:
                     inv[ra] = lb
             batch.clear()
             since_exec = 0
@@ -487,13 +496,13 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
             best_d = 10 ** 9
             for i in frontier:
                 if len(ops[i].qubits) == 2:
-                    d = int(dist[pos[ops[i].qubits[0]], pos[ops[i].qubits[1]]])
+                    d = int(dist[pos[_q0[i]], pos[_q1[i]]])
                     if d < best_d:
                         best_d = d
                         best_gate = i
             if best_gate is not None and best_d > 1:
-                q0 = pos[ops[best_gate].qubits[0]]
-                q1 = pos[ops[best_gate].qubits[1]]
+                q0 = pos[_q0[best_gate]]
+                q1 = pos[_q1[best_gate]]
                 # BFS 最短路径（q0 → q1）
                 prev = {q0: None}
                 from collections import deque
@@ -524,16 +533,16 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                         out.append(Inst("swap", (a, b)))
                         swap_count += 1
                         batch.append((a, b))
-                        la, lb = inv.get(a), inv.get(b)
-                        if la is not None:
-                            inv.pop(a, None)
+                        la, lb = inv[a], inv[b]
+                        if la >= 0:
+                            inv[a] = -1
                             pos[la] = b
-                        if lb is not None:
-                            inv.pop(b, None)
+                        if lb >= 0:
+                            inv[b] = -1
                             pos[lb] = a
-                        if la is not None:
+                        if la >= 0:
                             inv[b] = la
-                        if lb is not None:
+                        if lb >= 0:
                             inv[a] = lb
             continue
         elif scorer is not None:
@@ -649,15 +658,15 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
             else:
                 decay[a] += decay_inc
                 decay[b] += decay_inc
-        la, lb = inv.get(a), inv.get(b)
-        if la is not None:
-            del inv[a]
+        la, lb = inv[a], inv[b]
+        if la >= 0:
+            inv[a] = -1
             pos[la] = b
-        if lb is not None:
-            del inv[b]
+        if lb >= 0:
+            inv[b] = -1
             pos[lb] = a
             inv[a] = lb
-        if la is not None:
+        if la >= 0:
             inv[b] = la
         if swap_count > max_swaps:
             # 2026-11-13 审查代理 P1 修复：触顶不再静默截断（丢弃
@@ -668,6 +677,9 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
                 f"路由预算，调用方须提高 max_swaps 或降级线路")
 
     for inst in circ.measures:
-        out.append(Inst("measure", (pos[inst.qubits[0]],), cbits=inst.cbits))
+        out.append(Inst("measure", (int(pos[int(inst.qubits[0])]),),
+                       cbits=inst.cbits))
     out.strip_ids()
-    return out, swap_count, pos
+    # pos 数组 → dict（调用方 final_layout 语义）
+    pos_dict = {i: int(pos[i]) for i in range(circ.n)}
+    return out, swap_count, pos_dict
