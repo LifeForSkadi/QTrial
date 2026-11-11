@@ -99,6 +99,23 @@ check("A8  rz(π/2)·sx·rz(π/2) = H（模全局相位）",
 check("A9  sx·rz(π)·sx = Z",
       sx() @ rz(PI) @ sx(), np.diag([1.0, -1.0]))
 
+# A12（2026-11-13 新增）：H·rz·H 的 v4 merge 形态 = rx(θ)
+# （rz(π/2)·sx·rz(π+θ)·sx·rz(π/2)，merge_adjacent_rz 后产物形态）
+def rx(t):
+    return np.array([[np.cos(t / 2), -1j * np.sin(t / 2)],
+                     [-1j * np.sin(t / 2), np.cos(t / 2)]])
+
+
+check("A12  rz(π/2)·sx·rz(π+θ)·sx·rz(π/2) = rx(θ)（v4 merge 形态）",
+      rz(PI / 2) @ sx() @ rz(PI + th) @ sx() @ rz(PI / 2), rx(th))
+# A13（反例确认）：π/2 版（构造错误版）≠ rx
+check("A13[反例]  rz(π/2)·sx·rz(π/2+θ)·sx·rz(π/2) ≠ rx(θ)（预期 FAIL）",
+      rz(PI / 2) @ sx() @ rz(PI / 2 + th) @ sx() @ rz(PI / 2), rx(th))
+# A14：U5 的 X·rx 形式
+check("A14  rz(π/2)·sx·rz(π/2+θ)·sx·rz(π/2) = X·rx(π/2+θ)",
+      rz(PI / 2) @ sx() @ rz(PI / 2 + th) @ sx() @ rz(PI / 2),
+      x() @ rx(PI / 2 + th))
+
 # ============ B 组：H 与 cz/cx 的交换（修正版） ============
 H0 = kron(0, h())
 H1 = kron(1, h())

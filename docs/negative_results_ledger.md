@@ -66,3 +66,23 @@ H 控制位穿 cz → CNOT 方向翻转）。
 循环消化了全部 H）——qiskit 的 pass 顺序 = H 对消先行、
 1Q 合成后行（CommutativeCancellation 在 Optimize1qGates 前）。
 下一攻坚 = **H 优先消解**（预注册中，实验 scripts/diag_h_first.py）。
+
+15. **H 优先消解（循环重排序：rz 穿 cz + H 消解提到 1Q 合成前）**
+    （2026-11-13 预注册，已裁决）：预注册判据 = 3 线路 bar
+    +≥5% 门数减少。同输入 A/B（decompose_to_platform_v2
+    h_first 参数）：
+    - heisenberg N16：1024→1016（−0.8%）
+    - heisenberg N25：1684→1632（−3.1%）
+    - qft N020：3522→3600（**+2.2% 变差**）
+    三条全未达标。失败机制：v4 尾部 merge_adjacent_rz 已把
+    H·rz·H 半合并成 U5 形（= rx(θ) 的 ZSXXZ，A12 恒等式 20/20
+    验证）——输入中 H 半块/相邻 H 对几乎不存在（H·H 对消与
+    H·rz·H 吸收窗口在 heisenberg 边结构下为 0 次，v2/v3 实验）；
+    commute 深层推挤版（v4 实验 max_rounds=10）复现台账 #6
+    （rz/sx 分离、后续合成失效 1741 vs 790）。
+    **结论：死。已回退（h_first 参数从 post_v2.py 移除）。**
+    配套负证据链：理想跨段 rz 合并上限 3.5%（#11）——1Q 差距
+    的后处理可补部分已全部量化否决；差距主体在上游模板结构
+    （每 cz 1Q 密度 10.2 vs qiskit 3.9）与 rz 被 sx 锁死的
+    结构事实（A11 反例）。**下一攻坚 = 上游模板改造（fold 后
+    cx 结构与原始线路的对照诊断先行）。**
