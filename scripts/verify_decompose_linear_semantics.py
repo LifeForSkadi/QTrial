@@ -211,6 +211,18 @@ def test_circuit_equivalence():
         Inst("u1", (4,), (0.9,)), Inst("cx", (4, 3)),
         Inst("u3", (4,), (1.2, 0.4, 2.1)),
     ]
+    # rz(π) 模式用例（2026-11-12 覆盖缺口教训：Z 剥离负结果——
+    # 语义验证必须含机制触碰的模式）：[sx,rz(π),sx]（=i·rz(π) 三合一）、
+    # rz(π) 链、rz(π) 夹 cz 对、x·rz(π)·x = rz(−π)
+    fixed_z = [
+        Inst("sx", (0,)), Inst("rz", (0,), (np.pi,)), Inst("sx", (0,)),
+        Inst("cz", (0, 1)),
+        Inst("rz", (1,), (np.pi,)), Inst("cz", (1, 2)),
+        Inst("rz", (1,), (np.pi,)),
+        Inst("x", (2,)), Inst("rz", (2,), (np.pi,)), Inst("x", (2,)),
+        Inst("cx", (2, 3)), Inst("rz", (3,), (np.pi,)),
+        Inst("sx", (3,)), Inst("rz", (3,), (np.pi,)),
+    ]
     rng_state = np.random.default_rng(1)
     sv_rnd = rng_state.normal(size=2 ** n) + 1j * rng_state.normal(
         size=2 ** n)
@@ -231,10 +243,38 @@ def test_circuit_equivalence():
     n_fail += run_case(fixed, "固定用例 随机直积", prod)
     n_fail += run_case(fixed, "固定用例 GHZ 纠缠", ent)
 
+    # rz(π) 模式用例 × 三种输入态（Z 类模式的语义门禁）
+    n_fail += run_case(fixed_z, "rz(π) 模式 |0⟩", None)
+    n_fail += run_case(fixed_z, "rz(π) 模式 随机矢量", sv_rnd)
+    n_fail += run_case(fixed_z, "rz(π) 模式 随机直积", prod)
+
     for t in range(6):
         ops = rand_circ(int(rng.integers(30, 70)))
         init = sv_rnd if t % 2 else None
         n_fail += run_case(ops, f"随机用例 {t}"
+                           + (" 随机矢量" if t % 2 else " |0⟩"), init)
+    # 离散角随机用例：角度从 {0, π/2, π, 均匀随机} 混合抽取——
+    # rz(π)/rz(π/2) 模式必然出现（连续均匀随机命中概率≈0 的覆盖缺口）
+    for t in range(4):
+        ops = []
+        for _ in range(int(rng.integers(30, 60))):
+            g = rng.integers(0, 10)
+            q = int(rng.integers(0, n))
+            if g < 4:
+                ang = rng.choice([0.0, np.pi / 2, np.pi,
+                                  float(rng.uniform(0, 2 * np.pi))])
+                ops.append(Inst("rz", (q,), (ang,)))
+            elif g < 6:
+                ops.append(Inst("sx", (q,)))
+            elif g < 8:
+                ops.append(Inst("x", (q,)))
+            else:
+                b = int(rng.integers(0, n))
+                while b == q:
+                    b = int(rng.integers(0, n))
+                ops.append(Inst("cx", (q, b)))
+        init = sv_rnd if t % 2 else None
+        n_fail += run_case(ops, f"离散角随机 {t}"
                            + (" 随机矢量" if t % 2 else " |0⟩"), init)
     return n_fail
 

@@ -588,36 +588,42 @@ def _u3_level_to_platform(ops: list) -> list:
 
 
 def _translate_v4(ops: list, expand_swap: bool = True) -> list:
-    """v4 同款基翻译（列表版）：cx→rz(π/2)·sx·rz(π/2) H 块 + cz、
-    swap→3cx 展开、u3→B8 最优分解、u1→rz、h→H 块、rz/sx/x 原样。
-    O(m)。"""
+    """平台基翻译（列表版）：cx→H·cz·H（H = rz(π/2)·sx·rz(π/2)
+    边置式，qiskit 翻译同款）、swap→[sx⊗sx, cz]×3、u3→B8 最优
+    分解、u1→rz、h→H 块、rz/sx/x 原样。O(m)。
+
+    swap 形式（2026-11-12 对拍解剖，qv32 判据达标的关键）：
+    SWAP = cz·(sx⊗sx)·cz·(sx⊗sx)·cz·(sx⊗sx) 精确（矩阵验证
+    重叠 1.0、qiskit Operator 复核）——6 个 1Q + 3 cz vs
+    cx 链式 18 个 1Q + 3 cz：789 swap × 12 门 ≈ qiskit 翻译
+    少 9,195 门的主体（此前 gap 2,616 的根源）。
+    """
     from qtrail.pure.post import H_GATE as _HG, _u3_to_rzsx_min as _rzsx_min
+
+    def _h(q):
+        return (Inst("rz", (q,), (_HG[0],)), Inst("sx", (q,)),
+                Inst("rz", (q,), (_HG[0],)))
+
     out = []
     for inst in ops:
         if inst.name == "cx":
             a, b = inst.qubits
-            h = (Inst("rz", (b,), (_HG[0],)), Inst("sx", (b,)),
-                 Inst("rz", (b,), (_HG[0],)))
-            out.extend(h)
+            out.extend(_h(b))
             out.append(Inst("cz", (a, b)))
-            out.extend(h)
+            out.extend(_h(b))
         elif inst.name == "swap" and expand_swap:
             a, b = inst.qubits
-            for ctl, tgt in ((a, b), (b, a), (a, b)):
-                h = (Inst("rz", (tgt,), (_HG[0],)), Inst("sx", (tgt,)),
-                     Inst("rz", (tgt,), (_HG[0],)))
-                out.extend(h)
-                out.append(Inst("cz", (ctl, tgt)))
-                out.extend(h)
+            for _ in range(3):
+                out.append(Inst("sx", (a,)))
+                out.append(Inst("sx", (b,)))
+                out.append(Inst("cz", (a, b)))
         elif inst.name == "u3":
             for g, p in _rzsx_min(*inst.params):
                 out.append(Inst(g, inst.qubits, p))
         elif inst.name == "u1":
             out.append(Inst("rz", inst.qubits, inst.params))
         elif inst.name == "h":
-            out.append(Inst("rz", inst.qubits, (_HG[0],)))
-            out.append(Inst("sx", inst.qubits))
-            out.append(Inst("rz", inst.qubits, (_HG[0],)))
+            out.extend(_h(inst.qubits[0]))
         else:
             out.append(inst)
     return out
@@ -692,9 +698,13 @@ def _merge_runs_cross(ops: list, max_passes: int = 3) -> int:
                 pending.setdefault(int(inst.qubits[0]), []).append(inst)
         for q, gs in pending.items():
             seq.setdefault(q, []).append((gs, k, False))
-        # ---- 每比特：段内合并 + Z 剥离 + 对角累加收集（全深度单遍；
+        # ---- 每比特：段内合并 + 对角累加收集（全深度单遍；
         #      非 cz 硬边界不可穿——A 必须在硬边界前 flush、
         #      尾 rz 不剥）
+        # 注意（2026-11-12 负结果）：不得把 rz(π) 从游程中段剥离——
+        # Z·sx ≠ −sx·Z（矩阵直验 + qiskit 通勤检查器实测均不对易），
+        # 生产紧凑子空间验证 fid=0.0 捕获。正确机制 = merge_run 的
+        # 矩阵乘（sx·rz(π)·sx = i·rz(π) 三合一自动坍缩）。
         before = sum(len(r) for s in seq.values() for r, _b, _c in s)
         for q, s in seq.items():
             new_s = []
@@ -712,25 +722,6 @@ def _merge_runs_cross(ops: list, max_passes: int = 3) -> int:
                     new_s.append(([Inst("rz", (q,), (A % (2 * math.pi),))],
                                   prev_b, False))
                     A = None
-                # Z 剥离（qiskit CommutativeCancellation 的 Z 类语义）：
-                # rz(π) 与 cz 精确对易、与 sx/x 对易（模全局相位
-                # Z·sx = −sx·Z，−1 = 全系统全局相位可丢）——游程中间
-                # 的 rz(π) 全部抽出进累加器（[sx,rz(π),sx] →
-                # [sx,sx]→x + Z；Z 对互相抵消）
-                stripped = [g for g in run
-                            if not (g.name == "rz"
-                                    and abs((g.params[0] - math.pi)
-                                            % (2 * math.pi)) < 1e-9)]
-                if len(stripped) != len(run):
-                    for _ in range(len(run) - len(stripped)):
-                        A = math.pi if A is None else \
-                            (A + math.pi) % (2 * math.pi)
-                    run = stripped
-                    if len(run) > 1:
-                        run = merge_run(run)
-                    if not run:
-                        prev_c, prev_b = c, b
-                        continue
                 if len(run) == 1 and run[0].name == "rz":
                     # 全对角（单 rz）：进累加器（rz 跨 cz 精确对易）；
                     # 后随硬边界则立即落地
