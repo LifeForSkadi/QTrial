@@ -45,17 +45,11 @@ def _interaction_graph(circ: Circuit):
     return edges
 
 
-def _exact_embedding(circ, spec, time_budget: float = 15.0,
-                     max_active: int = 20):
-    """H 的支撑图嵌入设备图：返回置换 dict {旧位置: 新位置} 或 None。
+def _exact_embedding_networkx(circ, spec, time_budget: float = 15.0,
+                              max_active: int = 20):
+    """旧精确路径（networkx GraphMatcher，≤20 活跃；A/B 与测试对照）。
 
-    嵌入语义：把活跃位置（含 2Q 门的位置）重命名到设备节点上，使
-    全部 H 边落在设备边上。GraphMatcher 为子图同构（VF2），仅对
-    ≤ max_active 个活跃位置启用（稀疏图 VF2 毫秒级；过大直接放弃，
-    走部分嵌入）。
-
-    预算为墙钟时间（2026-11-12 用户决定改回：qiskit 的 VF2 限制
-    同样是计数型、硬件无关，墙钟预算在快机器上能多搜）。
+    2026-11-13 第 6 项后不再是默认：无搜索内剪枝、>20 直接放弃。
     """
     import networkx as nx
     edges = _interaction_graph(circ)
@@ -67,11 +61,8 @@ def _exact_embedding(circ, spec, time_budget: float = 15.0,
     H = nx.Graph()
     H.add_nodes_from(active)
     H.add_edges_from(edges.keys())
-    # 目标节点集排除禁用比特（真机口径必需：映射到禁用比特的线路
-    # 无法提交平台）
     usable = [q for q in range(spec.n)
               if q not in set(spec.disabled_qubits)]
-    # 度序列预检：H 节点度必须 ≤ 设备（可用节点）最大度
     G = nx.Graph()
     G.add_nodes_from(usable)
     G.add_edges_from([(i, j) for i in usable for j in usable
@@ -80,9 +71,7 @@ def _exact_embedding(circ, spec, time_budget: float = 15.0,
     deg_G = sorted((d for _, d in G.degree()), reverse=True)
     if any(dh > deg_G[i] for i, dh in enumerate(deg_H)):
         return None
-    GM = nx.algorithms.isomorphism.GraphMatcher(G, H)  # G 含 H 子图
-    # 多个嵌入解：按 Σ (1-ε) 噪声加权选最优（qiskit VF2PostLayout 的
-    # 评分在 trial 层、且无此嵌入内选优）
+    GM = nx.algorithms.isomorphism.GraphMatcher(G, H)
     err2q = spec.calib.err_2q
     med = float(np.median(list(err2q.values()))) if err2q else 1e-3
 
@@ -100,13 +89,70 @@ def _exact_embedding(circ, spec, time_budget: float = 15.0,
     for iso in GM.subgraph_isomorphisms_iter():
         if time.time() - t0 > time_budget:
             break
-        # iso: G 节点 -> H 节点。我们需要的重命名 = H 节点 -> G 节点
         mapping = {h: int(g) for g, h in iso.items()}
         s = score(mapping)
         if s > best_s:
             best_s = s
             best = mapping
     return best
+
+
+def _exact_embedding(circ, spec, time_budget: float = 15.0,
+                     max_active: int = 40):
+    """H 的支撑图嵌入设备图：返回置换 dict {旧位置: 新位置} 或 None。
+
+    嵌入语义：把活跃位置（含 2Q 门的位置）重命名到设备节点上，使
+    全部 H 边落在设备边上。
+
+    2026-11-13 执行顺序第 6 项：精确路径改为**自研 VF2++**
+    （qtrail/pure/vf2pp.py）——VF2 五规则 + VF2++ 节点排序 + 搜索内
+    增量打分（log 空间，含 1Q/读出项）+ 分支限界 + 递归内硬预算
+    （call_limit / max_solutions / wall）。旧 networkx GraphMatcher
+    路径只枚举、无预算内剪枝且 >20 活跃节点直接放弃；保留为测试对照
+    （tests/test_vf2pp.py 的 ≤20 最优分数等价性验证）。
+    开关 QTRAIL_VF2_IMPL=networkx 可切回旧路径（A/B/复现用）。
+
+    管线激活上限 max_active=40（2026-11-13 A/B 裁决）：>40 的线路交互图
+    在 587 large 组几乎全为不可嵌入（10×10 格子/稠密 QV/50 环），旧实现
+    也直接跳过——保持跳过可避免 graphstate_50 类"白耗预算"的墙钟回归；
+    算法本身对 25/36/50 节点可嵌入图均能在 ≤1s 内找到映射
+    （tests/test_vf2pp.py 能力测试）。
+    """
+    import os
+    if os.environ.get("QTRAIL_VF2_IMPL", "vf2pp").lower() == "networkx":
+        return _exact_embedding_networkx(
+            circ, spec, time_budget=time_budget,
+            max_active=min(max_active, 20))
+    from qtrail.pure.vf2pp import VF2Config, find_embedding
+    edges = _interaction_graph(circ)
+    if not edges:
+        return None
+    active = sorted({p for e in edges for p in e})
+    if len(active) > max_active:
+        return None
+    usable = [q for q in range(spec.n)
+              if q not in set(spec.disabled_qubits)]
+    err2q = spec.calib.err_2q
+    med = float(np.median(list(err2q.values()))) if err2q else 1e-3
+    # 1Q/读出项：活跃位置上的门数/测量数（评审 §3.2 的"只按 2Q
+    # 加权"缺陷修复；与管线对数保真度同口径）
+    w1q = {p: 0 for p in active}
+    for inst in circ.ops:
+        if inst.nq == 1:
+            q = int(inst.qubits[0])
+            if q in w1q:
+                w1q[q] += 1
+    wro = {p: 0 for p in active}
+    for m in circ.measures:
+        q = int(m.qubits[0])
+        if q in wro:
+            wro[q] += 1
+    cfg = VF2Config(wall_limit=min(8.0, max(0.0, time_budget)))
+    mapping, _score = find_embedding(
+        active, edges, spec.adj, usable,
+        spec.calib.err_1q, spec.calib.err_ro, err2q, med,
+        w1q, wro, cfg)
+    return mapping
 
 
 def _partial_embedding(circ, spec, time_budget: float = 10.0,

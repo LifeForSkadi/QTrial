@@ -44,6 +44,8 @@ REQUIRED_SCRIPTS = [
     "verify_all_legality.py",
     "ab_a2_backend.py",
     "ab_fidelity_model.py",
+    "ab_vf2pp.py",
+    "scan_vf2pp_coverage.py",
 ]
 
 
