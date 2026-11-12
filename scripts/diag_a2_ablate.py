@@ -64,7 +64,7 @@ def main():
     from qtrail.pure.post import decompose_to_platform
     from qtrail.pure.router import sabre_route
     from qtrail.pure.mapper import post_route
-    from qtrail.pure.post_v2 import decompose_to_platform_v2
+    from qtrail.pure.post_v2 import _decompose_ablation
     torch.manual_seed(42)
     t0 = time.time()
     layout = {i: int(res["layout"][i]) for i in range(circ.n)}
@@ -73,7 +73,7 @@ def main():
         trials=16, mix_rollout=(circ.n > 10))
     if mapper.use_post:
         routed, removed = post_route(routed, final_layout, spec.adj)
-    # v5 无 A2：绕 _v5_pipeline 太深，直接用 decompose_to_platform_v2
+    # v5 无 A2：绕 _v5_pipeline 太深，直接用 _decompose_ablation
     # resynth_every=0（等价 with_resynth=False 的 A2 关闭）
     routed2, final_layout2, final_qc = mapper._v5_pipeline(
         routed, final_layout, circ, 0.0, with_resynth=False)

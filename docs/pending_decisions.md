@@ -1715,3 +1715,43 @@ vf2_postlayout_explained.md §8.4；预注册判据已在 pending_decisions
 **下一步**：§5 第 7 项（开关收敛/死代码清理：15 参数 → 3 参数，1 天）。
 预注册判据先行：清理后全部测试/语义门禁通过、A/B 产物逐门一致、
 CLI 只暴露生产开关。
+
+### -12 补充五十三（2026-11-13，执行顺序第 7 项完成：开关收敛/死代码）
+
+**口径确认（重要）**：审查建议"15 参数 → 3 参数"未指定接口。仓库有两处
+15 开关面：`PureMapper.__init__`（15 个可选参数）与
+`decompose_to_platform_v2`（circ + 15 开关）。后者在生产路径只用
+`circ/spec/resynth_every/linear`，其余 12 个是纯消融开关，且"3 参数"
+可无功能损失达成——故按 decompose 接口收敛；**PureMapper 的用户面开关
+（policy/cfg/dev/seed/selection_rule/use_post/fidelity_predictor/pipeline）
+是功能选择而非消融开关，未动**（如需进一步收敛请另行指定）。
+
+**完成内容**：
+1. 公共分解入口收敛为
+   `decompose_to_platform_v2(circ, spec=None, linear=True)`（3 参数）：
+   等价于 `_decompose_ablation(circ, spec=spec, linear=linear,
+   resynth_every=1)`——生产默认 resynth_every=1 内部化。
+2. 原 15 开关函数更名 `_decompose_ablation`（circ + 15 开关，签名完整
+   保留），供实验/消融/复现；24 个实验脚本机械替换调用名（py_compile
+   全部通过）。
+3. `mapper._v5_pipeline` 调用改为 3 参数生产入口（删去显式
+   resynth_every=1）。
+4. 死代码删除（全仓零引用；AST 删除 + 导入自检）：`input_layout_or_final`
+   （candidates.py）、`swap_sequence`（circuit.py）、`_merge_u3_chain`
+   （post_v2.py）、`_extract_k` / `_bloch_to_su2` / `fit_block_multi` /
+   `fit_block_cz`（synthesis.py）——共 7 个函数。`fit3cx_gn.py` 文件
+   保留（负结果台账 #8 的归档证据）。
+5. 测试 `tests/test_api_surface.py`（3 项）：公共签名恰 3 参数；消融
+   入口 16 参数（circ+15）；公共入口与消融入口（生产默认）在
+   linear=True/带 spec/linear=False 三种情形产物逐门一致。
+
+**预注册判据与裁决**：
+- P1 3 参数 ✓、P2 消融面保留 ✓、P3 逐门一致 ✓
+- 黄金不变性：qft5/ghz10/qaoa12/N25 映射产物与重构前快照逐门一致 ✓
+- 全量测试 210 passed（+3），2 pre-existing failures（同前）✓
+- 变异/负向：`inspect.signature` 断言防参数回流。
+
+**下一步**：7 项执行顺序全部完成。建议下一批：
+(a) 587 全量按新管线（A2=vw、VF2++、Inst/候选类型化）重跑/重评；
+(b) 时间感知模型若作报告默认，需连同基线同口径重算；
+(c) 交付报告书/表格数字同步（V F2++ 后 N25/heis16 等改善未入表）。

@@ -73,7 +73,7 @@ def main():
                         pipeline="v5", routing_seeds=16)
     patch_no_strip()
 
-    from qtrail.pure.post_v2 import decompose_to_platform_v2
+    from qtrail.pure.post_v2 import _decompose_ablation
     for tgt in TARGETS:
         p = None
         for cand in BP.rglob("*.qasm"):
@@ -92,7 +92,7 @@ def main():
         cr = Circuit(routed.n, name=tgt)
         cr.ops = list(routed.ops)
         t0 = time.time()
-        out = decompose_to_platform_v2(cr, spec=spec, resynth_every=1)
+        out = _decompose_ablation(cr, spec=spec, resynth_every=1)
         c_n, n_n = count(out.ops)
         base = BASELINE[tgt]
         print(f"[{tgt}] 基线(strip)={base} no_strip={n_n}"

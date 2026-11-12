@@ -15,7 +15,7 @@ from qtrail.config import load_device_config
 from qtrail.devices import build_tianyan287_spec
 from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
-from qtrail.pure.post_v2 import fold_only, decompose_to_platform_v2
+from qtrail.pure.post_v2 import fold_only, _decompose_ablation
 
 
 def scan(ops, tag, nq=16):
@@ -59,7 +59,7 @@ def main():
     print(f'两次路由逐门一致: {same}')
 
     t0 = time.time()
-    out = decompose_to_platform_v2(r2, spec=spec, resynth_every=3,
+    out = _decompose_ablation(r2, spec=spec, resynth_every=3,
                                    lock_emissions=True)
     print(f'decompose: {len(out.ops)} 门 n={out.n} '
           f'({time.time()-t0:.0f}s)')

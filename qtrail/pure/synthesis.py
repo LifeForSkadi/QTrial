@@ -62,32 +62,6 @@ def _extract_right(T, K1):
     return _su2_proj(K2)
 
 
-def _extract_k(R):
-    """R ≈ w_matrix(k)：提取 Cartan 系数。
-
-    w_matrix 结构：W00 = e^{ik3}cos(k1-k2)、W03 = i·e^{ik3}sin(k1-k2)、
-    W11 = e^{-ik3}cos(k1+k2)、W12 = i·e^{-ik3}sin(k1+k2)。
-    k3 由 W00·e^{-ik3} 为实确定（两候选取残差小者）；r = k1-k2 与
-    s = k1+k2 由 atan2 反解（与 qiskit Weyl 分解对照验证）。
-    """
-    k3_cands = [np.angle(R[0, 0]), np.angle(R[0, 0]) + np.pi]
-    best = None
-    for k3 in k3_cands:
-        w00 = R[0, 0] * np.exp(-1j * k3)
-        w03 = R[0, 3] * np.exp(-1j * k3) * (-1j)
-        score = abs(w00.imag) + abs(w03.imag)
-        if best is None or score < best[0]:
-            best = (score, k3, w00, w03)
-    _, k3, w00, w03 = best
-    r = math.atan2(w03.real, w00.real)              # r = k1 - k2
-    w11 = R[1, 1] * np.exp(1j * k3)
-    w12 = R[1, 2] * np.exp(1j * k3) * (-1j)
-    s = math.atan2(w12.real, w11.real)              # s = k1 + k2
-    k1 = (r + s) / 2.0
-    k2 = (s - r) / 2.0
-    return np.array([k1, k2, k3])
-
-
 def kak_decompose(U: np.ndarray, iters: int = 100) -> dict:
     """Cartan KAK 分解（计算基复域交替 Procrustes，2026-11-09 重写）：
 
@@ -158,13 +132,6 @@ def _so4_to_su2(Q):
             l[i, j] = np.trace(blk @ r.conj().T) / 2.0
     l = _su2_proj(l)
     return l, r
-
-
-def _bloch_to_su2(th, ph, la):
-    c, s = math.cos(th / 2), math.sin(th / 2)
-    return np.array([[c, -np.exp(1j * la) * s],
-                     [np.exp(1j * ph) * s, np.exp(1j * (ph + la)) * c]],
-                    dtype=complex)
 
 
 # ======================================================================
@@ -255,37 +222,6 @@ def fit_block_circuit(U, init=None, max_steps=30, tol=1e-11):
     C = _block_circuit_matrix(t)
     ov = abs(np.vdot(C, U)) / (np.linalg.norm(C) * np.linalg.norm(U))
     return t, ov
-
-
-def fit_block_multi(U, n_starts=2):
-    """多起点拟合，返回 (t, overlap) 最优解。"""
-    best = (None, 0.0)
-    # 起点 1：KAK 分解初值
-    try:
-        dec = kak_decompose(U)
-        init = np.zeros(21)
-        for idx, K in enumerate((dec["K1"], dec["K2"])):
-            th, ph, la = _su2_euler(K)
-            init[3 * idx:3 * idx + 3] = [th, ph, la]
-        for idx, K in enumerate((dec["K3"], dec["K4"])):
-            th, ph, la = _su2_euler(K)
-            init[14 + 3 * idx:14 + 3 * idx + 3] = [th, ph, la]
-        init[6:14] = _init_3cx_params(np.asarray(dec["k"]))
-        t, ov = fit_block_circuit(U, init=init)
-        if ov > best[1]:
-            best = (t, ov)
-        if ov > 1 - 1e-9:
-            return best
-    except Exception:
-        pass
-    # 随机起点（收敛失败时兜底）
-    for _ in range(n_starts):
-        t, ov = fit_block_circuit(U, init=None)
-        if ov > best[1]:
-            best = (t, ov)
-        if ov > 1 - 1e-9:
-            break
-    return best
 
 
 def _su2_euler(K):
@@ -740,75 +676,6 @@ def _fit_3cx_params(k: np.ndarray) -> np.ndarray:
     result = t.detach().numpy()
     _FIT_CACHE[key] = result
     return result
-
-
-def fit_block_cz(U, init, steps=400, lr=0.1):
-    """cz 基 3-CZ 模板拟合（2026-11-13，qiskit tqp 输出结构对齐）：
-
-    U = (K1⊗K2)·CZ·(Rza⊗Rzb)·CZ·(Rzc⊗I)·CZ·(K3⊗K4)
-    ——15 参数（4 个 SU(2) 欧拉角 + 3 个中间 rz）。Rzd 经规范固定
-    删除：CZ 与 rz 对易 ⇒ rz 可在 CZ 间滑移吸收，16 参数中的 1 个
-    是规范自由度（SU(4) 15 维）——平坦方向使 Adam 卡局部最优
-    （ov 0.695/0.804），15 参数一一对应消除平坦方向。
-    初值：K 因子 euler 角 + 中间 rz（KAK Cartan 系数的对角化近似）。
-    返回 (t, overlap)；overlap < 1-1e-7 由调用方拒绝。
-    """
-    import torch
-    Ut = torch.tensor(np.asarray(U, dtype=complex), dtype=torch.complex128)
-
-    def cmat(t):
-        def rz(a):
-            return torch.stack([torch.exp(-1j * a / 2),
-                                torch.exp(1j * a / 2)]).diag_embed()
-
-        def u3(a, b, c):
-            cc, ss = torch.cos(a / 2), torch.sin(a / 2)
-            return torch.stack([torch.stack([cc, -torch.exp(1j * c) * ss]),
-                                torch.stack([torch.exp(1j * b) * ss,
-                                             torch.exp(1j * (b + c)) * cc])])
-        cz = torch.tensor([[1., 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0],
-                           [0, 0, 0, -1]], dtype=torch.complex128)
-        # t: K1(0:3) K2(3:6) Rza(6) Rzb(7) Rzc(8) K3(9:12) K4(12:15)
-        C = torch.kron(u3(t[0], t[1], t[2]), u3(t[3], t[4], t[5]))
-        C = cz @ C
-        C = torch.kron(rz(t[6]), rz(t[7])) @ C
-        C = cz @ C
-        C = torch.kron(rz(t[8]), rz(torch.zeros_like(t[8]))) @ C
-        C = cz @ C
-        C = torch.kron(u3(t[9], t[10], t[11]),
-                       u3(t[12], t[13], t[14])) @ C
-        return C
-
-    t = torch.tensor(np.asarray(init, dtype=np.float64), dtype=torch.float64,
-                     requires_grad=True)
-    opt = torch.optim.Adam([t], lr=lr)
-    prev_loss = float('inf')
-    stall = 0
-    max_steps = steps + 400
-    for _ in range(max_steps):
-        opt.zero_grad()
-        C = cmat(t)
-        ov = torch.vdot(C.reshape(-1), Ut.reshape(-1))
-        loss = 1.0 - (ov.abs() / 4.0) ** 2   # 模方损失（凸化，
-                                             # 与 fit_block_torch 一致）
-        loss.backward()
-        opt.step()
-        if float(loss.detach()) < 1e-12:
-            break
-        with torch.no_grad():
-            cur = float(loss.detach())
-        if abs(prev_loss - cur) < 1e-7:
-            stall += 1
-        else:
-            stall = 0
-        if stall > 2:
-            break
-        prev_loss = cur
-    with torch.no_grad():
-        C = cmat(t)
-        ov = float(torch.abs(torch.vdot(C.reshape(-1),
-                                        Ut.reshape(-1)))) / 4.0
-    return t.detach().numpy(), ov
 
 
 def fit_block_tuccil(U, init, steps=400, lr=0.1):

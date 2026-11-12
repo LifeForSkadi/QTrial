@@ -14,7 +14,7 @@ from qtrail.config import load_device_config
 from qtrail.devices import build_tianyan287_spec
 from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
-from qtrail.pure.post_v2 import fold_only, decompose_to_platform_v2
+from qtrail.pure.post_v2 import fold_only, _decompose_ablation
 
 
 def to_qc(ops, n):
@@ -48,7 +48,7 @@ def main():
                                      lookahead_w=0.0, w_ext=0.0,
                                      w_layer=None, cand_scope='front')
     folded, arr = fold_only(routed)
-    out = decompose_to_platform_v2(routed, spec=spec, resynth_every=1)
+    out = _decompose_ablation(routed, spec=spec, resynth_every=1)
     n = circ.n
     sv1 = np.array(Statevector(to_qc(folded.ops, n)).data)
     sv2 = np.array(Statevector(to_qc(out.ops, n)).data)

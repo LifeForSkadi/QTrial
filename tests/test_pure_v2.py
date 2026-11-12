@@ -16,8 +16,8 @@ import pytest
 
 from qtrail.pure.circuit import Circuit, Inst
 from qtrail.pure.post import _u3_to_rzsx, decompose_to_platform
-from qtrail.pure.post_v2 import (_cancel_adjacent_h, _mat_to_u3_params,
-                                 _oneq_matrix, decompose_to_platform_v2,
+from qtrail.pure.post_v2 import (_cancel_adjacent_h, _decompose_ablation,
+                                 _mat_to_u3_params, _oneq_matrix,
                                  merge_1q_runs)
 from qtrail.pure.qasm import load_qasm_file
 
@@ -198,7 +198,7 @@ def _run_pipeline(case, pipeline):
                                      seed=42)
     post_route(routed, fin, spec.adj)
     if pipeline == "v5":
-        final_qc = decompose_to_platform_v2(routed)
+        final_qc = _decompose_ablation(routed)
     else:
         final_qc = decompose_to_platform(routed)
     return final_qc, spec, fin

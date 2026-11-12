@@ -21,7 +21,7 @@ from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
 from qtrail.pure.mapper import post_route
 from qtrail.pure.circuit import Circuit
-from qtrail.pure.post_v2 import decompose_to_platform_v2
+from qtrail.pure.post_v2 import _decompose_ablation
 
 CKPT = "checkpoints/tianyan-287_gat_combined_calib_dep0.1_t0.5_c0.05_best.pt"
 BP = Path("data/benchpress/qasm")
@@ -70,7 +70,7 @@ def main():
         cr = Circuit(routed.n, name=tgt)
         cr.ops = list(routed.ops)
         t0 = time.time()
-        out = decompose_to_platform_v2(cr, spec=spec, resynth_every=1,
+        out = _decompose_ablation(cr, spec=spec, resynth_every=1,
                                        h_first=True)
         c_n, n_n = count(out.ops)
         base = BASELINE[tgt]

@@ -67,7 +67,7 @@ def main():
     print(f'routed 干净: {len(routed.ops)} 门 swap={swaps}', flush=True)
 
     # 包装 decompose 循环：每轮打标记 + 轮末扫描（循环体内 pass 已包装）
-    orig_decompose = pv2.decompose_to_platform_v2
+    orig_decompose = pv2._decompose_ablation
 
     def w_decompose(c, **kw):
         # 直接复用原函数逻辑但打轮标记：改写为逐 pass 包装不够细——
@@ -78,10 +78,10 @@ def main():
         scan_list('decompose_final', r.ops)
         return r
 
-    pv2.decompose_to_platform_v2 = w_decompose
+    pv2._decompose_ablation = w_decompose
 
     t0 = time.time()
-    out = pv2.decompose_to_platform_v2(routed, spec=spec,
+    out = pv2._decompose_ablation(routed, spec=spec,
                                        resynth_every=3,
                                        lock_emissions=True)
     print(f'完成: 1Q={sum(1 for i in out.ops if i.nq == 1)} '

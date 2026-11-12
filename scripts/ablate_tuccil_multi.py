@@ -10,7 +10,7 @@ from qtrail.config import load_device_config
 from qtrail.devices import build_tianyan287_spec
 from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
-from qtrail.pure.post_v2 import decompose_to_platform_v2
+from qtrail.pure.post_v2 import _decompose_ablation
 
 CASES = [
     ('h25', 'data/benchpress/qasm/square-heisenberg/'
@@ -34,7 +34,7 @@ def main():
                                          w_ext=0.0, w_layer=None,
                                          cand_scope='front')
         t0 = time.time()
-        out_a = decompose_to_platform_v2(routed, spec=spec, resynth_every=1)
+        out_a = _decompose_ablation(routed, spec=spec, resynth_every=1)
         ta = time.time() - t0
         print(f'{tag} (a) 全组件: 1Q={count_1q(out_a.ops)} '
               f'cz={out_a.count("cz")} depth={out_a.layer_depth()} '
@@ -45,7 +45,7 @@ def main():
         syn.fit_block_tuccil = lambda *a, **k: (_ for _ in ()).throw(
             RuntimeError("disabled"))
         t0 = time.time()
-        out_b = decompose_to_platform_v2(routed, spec=spec, resynth_every=1)
+        out_b = _decompose_ablation(routed, spec=spec, resynth_every=1)
         tb = time.time() - t0
         syn.fit_block_tuccil = orig
         print(f'{tag} (b) 无Tuccil: 1Q={count_1q(out_b.ops)} '

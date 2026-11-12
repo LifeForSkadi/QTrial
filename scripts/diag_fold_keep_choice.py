@@ -18,7 +18,7 @@ from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
 from qtrail.pure.mapper import post_route
 from qtrail.pure.post_v2 import (fold_keep_coords, fold_and_relink,
-                                 fold_only, decompose_to_platform_v2)
+                                 fold_only, _decompose_ablation)
 from qtrail.pure.post import decompose_to_platform
 from qtrail.pure.metrics import compute_metrics
 

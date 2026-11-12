@@ -70,7 +70,7 @@ def h_first_group(ops, rounds=8):
 
 
 def full_existing_loop(ops, spec, resynth_every=0, max_rounds=12):
-    """现有不动点循环（decompose_to_platform_v2 的 A2 关闭版）。"""
+    """现有不动点循环（_decompose_ablation 的 A2 关闭版）。"""
     out = Circuit(ops[0] if False else 0, name="x")  # 占位不用
     return ops
 
@@ -131,13 +131,13 @@ def main():
     print(f"[{time.time()-t0:.0f}s] H 优先组后: {dict(c_h)}  1Q="
           f"{c_h['rz']+c_h['sx']+c_h.get('x',0)}", flush=True)
 
-    # H 优先组后接完整现有循环（decompose_to_platform_v2 的
+    # H 优先组后接完整现有循环（_decompose_ablation 的
     # fixpoint 部分，resynth_every=0 等价）
-    from qtrail.pure.post_v2 import decompose_to_platform_v2
+    from qtrail.pure.post_v2 import _decompose_ablation
     t0 = time.time()
     circ_h = Circuit(circ.n, name="h")
     circ_h.ops = list(ops_h)
-    final_h = decompose_to_platform_v2(circ_h, spec=spec,
+    final_h = _decompose_ablation(circ_h, spec=spec,
                                        resynth_every=0, fixpoint=True)
     ops_f = final_h.ops
     c_f = Counter(i.name for i in ops_f)

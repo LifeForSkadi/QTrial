@@ -32,7 +32,7 @@ from qtrail.models import QAPolicy
 from qtrail.pure.circuit import Circuit
 from qtrail.pure.mapper import PureMapper
 from qtrail.pure.metrics import compute_metrics
-from qtrail.pure.post_v2 import decompose_to_platform_v2
+from qtrail.pure.post_v2 import _decompose_ablation
 from qtrail.pure.qasm import parse_qasm
 
 CKPT = "checkpoints/tianyan-287_gat_combined_calib_dep0.1_t0.5_c0.05_best.pt"
@@ -94,7 +94,7 @@ def ab_one(dump_path, spec, label):
                          ("B_linear",
                           {"spec": spec, "linear": True})):
         t0 = time.time()
-        out = decompose_to_platform_v2(circ, **kwargs)
+        out = _decompose_ablation(circ, **kwargs)
         wall = time.time() - t0
         m = compute_metrics(out, 0, spec.calib)
         n1q = sum(1 for i in out.ops if i.name in _PLATFORM_1Q)

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """H 优先消解判据实验（2026-11-13，预注册 bar）：同输入 routed、
-同路径 decompose_to_platform_v2（resynth_every=1），仅 h_first
+同路径 _decompose_ablation（resynth_every=1），仅 h_first
 循环顺序差异。3 线路：square_heisenberg_N16/N25、qft_N020。
 判据：h_first 门数 ≤ 基线的 95%（−5%）。
 """
@@ -21,7 +21,7 @@ from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
 from qtrail.pure.mapper import post_route
 from qtrail.pure.circuit import Circuit
-from qtrail.pure.post_v2 import decompose_to_platform_v2
+from qtrail.pure.post_v2 import _decompose_ablation
 
 CKPT = "checkpoints/tianyan-287_gat_combined_calib_dep0.1_t0.5_c0.05_best.pt"
 BP = Path("data/benchpress/qasm")
@@ -70,11 +70,11 @@ def main():
         circ_r = Circuit(routed.n, name=tgt)
         circ_r.ops = list(routed.ops)
         t0 = time.time()
-        base = decompose_to_platform_v2(circ_r, spec=spec, resynth_every=1)
+        base = _decompose_ablation(circ_r, spec=spec, resynth_every=1)
         tb = time.time() - t0
         c_b, n1q_b = count(base.ops)
         t0 = time.time()
-        new = decompose_to_platform_v2(circ_r, spec=spec, resynth_every=1,
+        new = _decompose_ablation(circ_r, spec=spec, resynth_every=1,
                                        h_first=True)
         tn = time.time() - t0
         c_n, n1q_n = count(new.ops)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""循环轨迹诊断（2026-11-13）：decompose_to_platform_v2 的循环
+"""循环轨迹诊断（2026-11-13）：_decompose_ablation 的循环
 每轮 1Q 门数——查"过冲"（中途最小点优于最终稳定态）。qiskit O3
 循环 = 最小点停止（_optimization_check_minimum_point），我们 =
 固定点。若过冲存在 → 早停修复候选。
@@ -22,7 +22,7 @@ from qtrail.pure.router import sabre_route
 from qtrail.pure.mapper import post_route
 from qtrail.pure.circuit import Circuit, Inst
 
-# 复刻 decompose_to_platform_v2 的循环（含每轮打印）——直接 monkey
+# 复刻 _decompose_ablation 的循环（含每轮打印）——直接 monkey
 # patch 组件：用 post_v2 的函数手动跑循环
 from qtrail.pure.post_v2 import (
     _sort_segment_1q, _merge_sx_pairs, slide_x_through_cz, merge_1q_runs,

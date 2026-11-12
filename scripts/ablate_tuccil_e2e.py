@@ -18,7 +18,7 @@ from qtrail.config import load_device_config
 from qtrail.devices import build_tianyan287_spec
 from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
-from qtrail.pure.post_v2 import decompose_to_platform_v2
+from qtrail.pure.post_v2 import _decompose_ablation
 
 
 def to_qc(ops, n):
@@ -71,7 +71,7 @@ def main():
     for tag, kw in (("(a) re=1 全组件", dict(resynth_every=1)),
                     ("(c) 无A2", dict(resynth_every=0))):
         t0 = time.time()
-        out = decompose_to_platform_v2(routed, spec=spec, **kw)
+        out = _decompose_ablation(routed, spec=spec, **kw)
         print(f'{tag}: 1Q={count_1q(out.ops)} cz={out.count("cz")} '
               f'depth={out.layer_depth()} fid={fid_of(routed, out):.6f} '
               f'({time.time()-t0:.0f}s)', flush=True)
@@ -85,7 +85,7 @@ def main():
 
     syn.fit_block_tuccil = fail_fit
     t0 = time.time()
-    out = decompose_to_platform_v2(routed, spec=spec, resynth_every=1)
+    out = _decompose_ablation(routed, spec=spec, resynth_every=1)
     syn.fit_block_tuccil = orig_fit
     print(f'(b) re=1 无Tuccil: 1Q={count_1q(out.ops)} '
           f'cz={out.count("cz")} depth={out.layer_depth()} '

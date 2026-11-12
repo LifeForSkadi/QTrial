@@ -115,13 +115,6 @@ class Circuit:
         return sum(1 for i in self.ops if i.name == name)
 
     # ------------------------------------------------------------------ 变换
-    def swap_sequence(self):
-        """提取 (swap 位置, (a, b)) 序列，供最终布局追踪。"""
-        out = []
-        for i, inst in enumerate(self.ops):
-            if inst.name == "swap":
-                out.append((i, inst.qubits))
-        return out
 
     def strip_ids(self):
         self.ops = [i for i in self.ops if i.name != "id"]

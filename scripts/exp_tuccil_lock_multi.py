@@ -14,7 +14,7 @@ from qtrail.config import load_device_config
 from qtrail.devices import build_tianyan287_spec
 from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
-from qtrail.pure.post_v2 import decompose_to_platform_v2
+from qtrail.pure.post_v2 import _decompose_ablation
 
 CASES = [
     ('data/benchpress/qasm/square-heisenberg/'
@@ -50,7 +50,7 @@ def main():
               f'swap={swaps} ({time.time()-t0:.0f}s)', flush=True)
         for lock in (False, True):
             t0 = time.time()
-            out = decompose_to_platform_v2(routed, spec=spec,
+            out = _decompose_ablation(routed, spec=spec,
                                            resynth_every=3,
                                            lock_emissions=lock)
             nlock = sum(1 for i in out.ops if getattr(i, 'tu_locked', False))

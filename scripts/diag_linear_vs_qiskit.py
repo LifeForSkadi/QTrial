@@ -19,7 +19,7 @@ import numpy as np
 
 from qtrail.config import load_device_config
 from qtrail.devices import build_tianyan287_spec
-from qtrail.pure.post_v2 import (decompose_to_platform_v2, _expand_to_u3cz,
+from qtrail.pure.post_v2 import (_decompose_ablation, _expand_to_u3cz,
                                  _merge_runs_u3cz, _U3_H)
 
 DUMP_DIR = Path("scripts/tmp_decompose_ab")

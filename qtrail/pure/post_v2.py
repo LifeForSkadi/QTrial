@@ -150,60 +150,6 @@ def _platformize_insts(insts: list) -> list:
     return out
 
 
-def _merge_u3_chain(insts: list) -> list:
-    """合成输出的 u3/u1 链合并（2026-11-13）：同比特连续的 u3/u1 →
-    矩阵乘积合成单 u3（精确、全局相位剥离）；u1（rz）穿过 cx 控制位
-    与后续 u3 合并：[u1(q), cx(q,r), u3(q)] → [cx(q,r), U(q)]——
-    qiskit euler 合成器的等价机制（rz 与 cx 控制位对易）。
-    """
-    out = []
-    i = 0
-    n = len(insts)
-    while i < n:
-        inst = insts[i]
-        if inst.name in ("u3", "u1") and inst.nq == 1:
-            q = inst.qubits[0]
-            j = i
-            U = np.eye(2, dtype=complex)
-            while j < n:
-                nj = insts[j]
-                if nj.name in ("u3", "u1") and nj.qubits[0] == q:
-                    U = _oneq_matrix(nj.name, nj.params) @ U
-                    j += 1
-                else:
-                    break
-            # 穿 cx 控制位的模式：[U(q), cx(q,r), u3(q)] →
-            # [cx(q,r), U'(q)]（U' = U·u3）
-            if (j < n and insts[j].name == "cx"
-                    and insts[j].qubits[0] == q and j + 1 < n
-                    and insts[j + 1].name in ("u3", "u1")
-                    and insts[j + 1].qubits[0] == q):
-                cx_inst = insts[j]
-                U = _oneq_matrix(insts[j + 1].name,
-                                 insts[j + 1].params) @ U
-                U = U / np.sqrt(np.linalg.det(U))
-                if abs(np.trace(U)) / 2 > 1 - 1e-9:
-                    out.append(cx_inst)      # U 恒等：只留 cx
-                else:
-                    out.append(cx_inst)
-                    out.append(Inst("u3", (q,), _mat_to_u3_params(U)))
-                i = j + 2
-                continue
-            if j - i > 1:
-                U = U / np.sqrt(np.linalg.det(U))
-                if abs(np.trace(U)) / 2 > 1 - 1e-9:
-                    pass  # 恒等：删除
-                else:
-                    out.append(Inst("u3", (q,), _mat_to_u3_params(U)))
-            else:
-                out.append(inst)
-            i = j
-        else:
-            out.append(inst)
-            i += 1
-    return out
-
-
 def _mat_to_u3_params(U) -> tuple:
     """SU(2) 矩阵 → u3(θ,φ,λ) 参数（含全局相位剥离的精确提取）。
 
@@ -2074,7 +2020,19 @@ def commute_cancel_cx(out_ops: list, window: int = 12,
 
 
 # ------------------------------------------------------------ v5 分解入口
-def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
+def decompose_to_platform_v2(circ: Circuit, spec=None,
+                             linear: bool = True) -> Circuit:
+    """**生产分解入口（3 参数，2026-11-13 第 7 项开关收敛）**。
+
+    等价于 `_decompose_ablation(circ, spec=spec, linear=linear,
+    resynth_every=1)`：生产路径的 12 个消融开关固定为生产默认值。
+    实验/消融/复现请调用 `_decompose_ablation`（保留完整 15 开关面）。
+    """
+    return _decompose_ablation(circ, spec=spec, linear=linear,
+                               resynth_every=1)
+
+
+def _decompose_ablation(circ: Circuit, expand_swap: bool = True,
                              cancel_cx: bool = True,
                              fixpoint: bool = True,
                              merge_u3: bool = False,
@@ -2088,7 +2046,13 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
                              max_rounds: int = 12,
                              h_first: bool = False,
                              linear: bool = False) -> Circuit:
-    """v5 平台基分解：v4 分解（cx→H-CZ-H、swap→3cx、u3→rzsx）+ 1Q 优化
+    """**消融/实验入口（15 开关，2026-11-13 第 7 项保留）**。
+
+    生产调用请用 `decompose_to_platform_v2(circ, spec, linear)`（3 参数，
+    固定生产默认 resynth_every=1）；本函数保留全部消融开关供脚本/测试
+    复现实验（含 fixpoint/merge_u3/Tuccil/h_first 等非生产路径）。
+
+    v5 平台基分解：v4 分解（cx→H-CZ-H、swap→3cx、u3→rzsx）+ 1Q 优化
     不动点循环（对标 qiskit Optimize1qGates + 交换消除）。
 
     与 v4（post.py decompose_to_platform）的差异：分解前多一轮 cx

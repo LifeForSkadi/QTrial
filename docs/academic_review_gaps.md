@@ -508,7 +508,7 @@ VF2++，qtrail/pure/vf2pp.py）。实测：N25（25 活跃）精确嵌入 →
 | 4 | ✅ 候选状态类型化（CandidateResult + 帧标记 + Inst 冻结）（2026-11-13 完成：qtrail/pure/candidates.py + Inst(frozen=True) + tests/test_candidate_frame.py；黄金门流重构前后逐门一致） | 2-3 天 | 根治共享可变状态类 bug |
 | 5 | ✅ 时间感知保真度模型（2026-11-13 完成：metrics._time_log_fidelity，门时间 + T1/Tφ 空闲退相干 + rz=0 + swap=3×2Q + 读出时间；QTRAIL_FIDELITY_MODEL=time 可选口径，compute_metrics 恒返回双模型字段；5 项测试 + 6 语料 A/B 产物不变） | 2-3 天 | 论文级指标可信度；数字会变，相对排序大概率不变 |
 | 6 | ✅ **自研 VF2++（方案 B）**（2026-11-13 完成：qtrail/pure/vf2pp.py，VF2 五规则 + VF2++ 排序 + 增量打分/分支限界 + 递归内硬预算；N25 2Q 210→120/1Q 824→593/depth 324→197，heis16 改善，large 零回归零非法；networkx 保留为对照开关） | 1 天 | >20 活跃节点的精确嵌入覆盖率（当前按构造 0%） |
-| 7 | 开关收敛/死代码清理（15 参数 → 3 参数） | 1 天 | 可维护性 |
+| 7 | ✅ 开关收敛/死代码清理（2026-11-13 完成：公共分解入口 = `decompose_to_platform_v2(circ, spec=None, linear=True)` 3 参数；15 个消融开关移入 `_decompose_ablation` 供实验复现；24 个实验脚本机械改名；删除 7 个零引用函数；黄金映射产物逐门一致、全量 210 passed） | 1 天 | 可维护性 |
 
 **执行纪律**（每一项都适用）：预注册判据先行 → 实现 → 语义门禁 + 测试 →
 A/B 裁决 → 达标合入/不达标回退（开关默认关）→ 裁决记录进

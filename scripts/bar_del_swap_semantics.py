@@ -17,7 +17,7 @@ from qtrail.devices import build_tianyan287_spec
 from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
 from qtrail.pure.circuit import Circuit, Inst
-from qtrail.pure.post_v2 import decompose_to_platform_v2
+from qtrail.pure.post_v2 import _decompose_ablation
 
 LAYOUT = {0: 74, 1: 80, 2: 75, 3: 82, 4: 68, 5: 59, 6: 73, 7: 60,
           8: 76, 9: 66, 10: 61, 11: 67, 12: 69, 13: 62, 14: 83,

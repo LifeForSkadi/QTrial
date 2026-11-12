@@ -350,9 +350,8 @@ class PureMapper:
             import pickle
             with open(_dump, "wb") as _f:
                 pickle.dump(routed, _f)
-        final_qc = decompose_to_platform_v2(routed, spec=self.spec,
-                                            resynth_every=1,
-                                            linear=self.linear_decompose)
+        final_qc = decompose_to_platform_v2(
+            routed, spec=self.spec, linear=self.linear_decompose)
         m_v4 = pure_metrics(final_qc_v4, routed_v4.count("swap"),
                             self.spec.calib,
                             predictor=self.fidelity_predictor)

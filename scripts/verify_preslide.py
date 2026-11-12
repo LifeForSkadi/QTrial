@@ -19,7 +19,7 @@ from qtrail.devices import build_tianyan287_spec
 from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
 from qtrail.pure.post_v2 import (
-    _preslide_1q, collect_resynthesize_2q_blocks, decompose_to_platform_v2)
+    _preslide_1q, collect_resynthesize_2q_blocks, _decompose_ablation)
 
 
 def to_qc(ops, n):
@@ -71,7 +71,7 @@ def main():
 
     # (A) 仅 loop
     t0 = time.time()
-    out_a = decompose_to_platform_v2(routed, spec=spec, resynth_every=1)
+    out_a = _decompose_ablation(routed, spec=spec, resynth_every=1)
     print(f'(A) 仅loop: 1Q={count_1q(out_a.ops)} cz={out_a.count("cz")} '
           f'depth={out_a.layer_depth()} ({time.time()-t0:.0f}s)', flush=True)
 
@@ -79,7 +79,7 @@ def main():
     rc = routed.copy()
     t0 = time.time()
     rc = collect_resynthesize_2q_blocks(rc, spec)
-    out_c = decompose_to_platform_v2(rc, spec=spec, resynth_every=1)
+    out_c = _decompose_ablation(rc, spec=spec, resynth_every=1)
     print(f'(C) 前置A2无slide: 1Q={count_1q(out_c.ops)} '
           f'cz={out_c.count("cz")} depth={out_c.layer_depth()} '
           f'({time.time()-t0:.0f}s)', flush=True)
@@ -89,7 +89,7 @@ def main():
     t0 = time.time()
     _preslide_1q(rb.ops)
     rb = collect_resynthesize_2q_blocks(rb, spec)
-    out_b = decompose_to_platform_v2(rb, spec=spec, resynth_every=1)
+    out_b = _decompose_ablation(rb, spec=spec, resynth_every=1)
     print(f'(B) slide+前置A2: 1Q={count_1q(out_b.ops)} '
           f'cz={out_b.count("cz")} depth={out_b.layer_depth()} '
           f'fid={fid_of(routed, out_b):.6f} ({time.time()-t0:.0f}s)',

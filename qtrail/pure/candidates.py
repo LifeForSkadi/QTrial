@@ -52,6 +52,3 @@ class CandidateResult:
         # physical 帧：input_layout 允许不同于 final_layout（裸路由：
         # 初始布局 vs 最终布局）；None 表示恒等嵌入。
 
-    def input_layout_or_final(self) -> dict:
-        return dict(self.final_layout if self.input_layout is None
-                    else self.input_layout)

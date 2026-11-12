@@ -23,7 +23,7 @@ from qtrail.pure.qasm import load_qasm_file
 from qtrail.pure.router import sabre_route
 from qtrail.pure.post import post_route, decompose_to_platform
 from qtrail.pure.post_v2 import (collect_resynthesize_2q_blocks,
-                                 decompose_to_platform_v2,
+                                 _decompose_ablation,
                                  learned_relabel, noise_aware_relabel)
 from qtrail.pure.metrics import compute_metrics
 
@@ -74,7 +74,7 @@ def run_variant(policy, cfg, spec, circ, variant, seed=42):
         learned_relabel(policy, spec, r, f, cfg, dev="cpu", seed=seed)
     if "noA2" not in variant:
         r = collect_resynthesize_2q_blocks(r, spec)
-    final_qc = decompose_to_platform_v2(
+    final_qc = _decompose_ablation(
         r, cancel_cx=("noA3" not in variant),
         fixpoint=("noB" not in variant))
     return compute_metrics(final_qc, r.count("swap"), spec.calib)

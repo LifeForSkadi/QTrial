@@ -20,7 +20,7 @@ from qtrail.devices import build_tianyan287_spec
 from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
 from qtrail.pure.circuit import Circuit
-from qtrail.pure.post_v2 import decompose_to_platform_v2
+from qtrail.pure.post_v2 import _decompose_ablation
 
 
 def to_qc(ops, n):
@@ -70,7 +70,7 @@ def main():
                 .Inst('cx', (0, 1)),
                 __import__('qtrail.pure.circuit', fromlist=['Inst'])
                 .Inst('rz', (0,), (0.7,))]
-    out1 = decompose_to_platform_v2(tiny, spec=spec, resynth_every=3)
+    out1 = _decompose_ablation(tiny, spec=spec, resynth_every=3)
     print(f'① tiny 全管线 fid={fid_between(tiny, out1):.6f}（应=1）',
           flush=True)
 
@@ -84,15 +84,15 @@ def main():
                                      w_layer=None, cand_scope='front')
 
     # ② 仅 v4
-    out2 = decompose_to_platform_v2(routed, spec=spec, fixpoint=False)
+    out2 = _decompose_ablation(routed, spec=spec, fixpoint=False)
     print(f'② h16 仅v4 fid={fid_between(routed, out2):.6f}（应=1）',
           flush=True)
     # ③ 循环无 A2
-    out3 = decompose_to_platform_v2(routed, spec=spec, resynth_every=0)
+    out3 = _decompose_ablation(routed, spec=spec, resynth_every=0)
     print(f'③ h16 循环无A2 fid={fid_between(routed, out3):.6f}（应=1）',
           flush=True)
     # ④ 全管线
-    out4 = decompose_to_platform_v2(routed, spec=spec, resynth_every=3)
+    out4 = _decompose_ablation(routed, spec=spec, resynth_every=3)
     print(f'④ h16 全管线re3 fid={fid_between(routed, out4):.6f}（应=1）',
           flush=True)
 

@@ -3,7 +3,7 @@
 
 定位 1Q 差距（736 vs qiskit 489）的膨胀阶段：
 原始 → RL 布局 → sabre_route → post_route → fold_and_relink →
-decompose_to_platform_v2，逐阶段统计 cx/swap/1Q 门数；
+_decompose_ablation，逐阶段统计 cx/swap/1Q 门数；
 qiskit 同口径对照（SabreLayout+SabreSwap+O3）。
 """
 import sys

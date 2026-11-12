@@ -15,7 +15,7 @@ from qtrail.config import load_device_config
 from qtrail.devices import build_tianyan287_spec
 from qtrail.pure.qasm import parse_qasm
 from qtrail.pure.router import sabre_route
-from qtrail.pure.post_v2 import fold_only, decompose_to_platform_v2
+from qtrail.pure.post_v2 import fold_only, _decompose_ablation
 
 
 def count_1q(ops):
@@ -40,7 +40,7 @@ def main():
     for re in (1, 3):
         for lock in (False, True):
             t0 = time.time()
-            out = decompose_to_platform_v2(routed, spec=spec,
+            out = _decompose_ablation(routed, spec=spec,
                                            resynth_every=re,
                                            lock_emissions=lock)
             n1q = count_1q(out.ops)
