@@ -123,8 +123,10 @@ class PureMapper:
                 m = pure_metrics(routed, swaps, self.spec.calib,
                                  predictor=self.fidelity_predictor)
                 entry = (m["swap_count"], m["depth"],
-                         m["est_fidelity"], pi)
-                if best_entry is None or entry[1] < best_entry[1]:
+                         m["log_est_fidelity"], pi)
+                # 种子取优按选择规则（审查 P2-8：此前恒按 depth，与
+                # 文档"swap 最少"矛盾——fidelity 规则按 log 保真度）
+                if best_entry is None or self._seed_better(entry, best_entry):
                     best_entry = entry
             if best_entry is not None:
                 scored.append(best_entry)
@@ -136,25 +138,39 @@ class PureMapper:
         fidelity 规则：保真度不降；swap 规则：swap 更少或持平且保真度
         不降；depth 规则：深度更浅或持平且保真度不降。
         """
+        # 2026-11-12 审查 P0-3：改用对数保真度（乘积在大型线路下溢，
+        # 原 1e-12 绝对容差使守卫对 37.5% 样本失去判别力）
+        l5 = m_v5.get("log_est_fidelity", float("-inf"))
+        l4 = m_v4.get("log_est_fidelity", float("-inf"))
         if self.selection_rule == "swap":
             return (m_v5["swap_count"] < m_v4["swap_count"]
                     or (m_v5["swap_count"] == m_v4["swap_count"]
-                        and m_v5["est_fidelity"] >= m_v4["est_fidelity"] - 1e-12))
+                        and l5 >= l4 - 1e-9))
         if self.selection_rule == "depth":
             return (m_v5["depth"] < m_v4["depth"]
                     or (m_v5["depth"] <= m_v4["depth"]
-                        and m_v5["est_fidelity"] >= m_v4["est_fidelity"] - 1e-12))
-        return m_v5["est_fidelity"] >= m_v4["est_fidelity"] - 1e-12
+                        and l5 >= l4 - 1e-9))
+        return l5 >= l4 - 1e-9
+
+    def _seed_better(self, entry, best) -> bool:
+        """多种子取优（审查 P2-8）：按选择规则比较。
+        注意 entry[2] 已统一为对数保真度（越大越好）。"""
+        if self.selection_rule == "depth":
+            return entry[1] < best[1]
+        if self.selection_rule == "fidelity":
+            return entry[2] > best[2] + 1e-9
+        return entry[0] < best[0] or (entry[0] == best[0]
+                                      and entry[2] > best[2] + 1e-9)
 
     def _select(self, scored):
-        """三规则决胜（与主 Mapper 同逻辑）。"""
+        """三规则决胜（与主 Mapper 同逻辑；s[2] = 对数保真度）。"""
         if self.selection_rule == "swap":
             best = min(s[0] for s in scored)
             near = [s for s in scored if s[0] <= best + 2]
             return max(near, key=lambda s: s[2])[3], best
         if self.selection_rule == "fidelity":
             best = max(s[2] for s in scored)
-            near = [s for s in scored if s[2] >= best * 0.98]
+            near = [s for s in scored if s[2] >= best - 0.02]
             return min(near, key=lambda s: (s[0], -s[2]))[3], min(s[0] for s in near)
         best = min(s[1] for s in scored)
         tol = max(3, 0.05 * best)
@@ -307,7 +323,7 @@ class PureMapper:
             m = pure_metrics(q, c0.count("swap"), self.spec.calib,
                              predictor=self.fidelity_predictor)
             scored.append((m["swap_count"], m["depth"],
-                           m["est_fidelity"], (c0, c1, c2)))
+                           m["log_est_fidelity"], (c0, c1, c2)))
         chosen = self._select(scored)[0]
         routed, final_layout = chosen[0], dict(chosen[1])
         if layout is not None and chosen[2] is not None:
@@ -382,7 +398,7 @@ class PureMapper:
                              self.spec.calib,
                              predictor=self.fidelity_predictor)
             scored.append((m["swap_count"], m["depth"],
-                           m["est_fidelity"], pi,
+                           m["log_est_fidelity"], pi,
                            (routed_pre, fin_pre, removed)))
         return scored
 

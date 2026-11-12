@@ -1601,8 +1601,10 @@ def learned_relabel(policy, spec, circ: Circuit, final_layout: dict,
     from qtrail.search.decoding import multistart_decode
 
     def fid_of_pi(pi):
-        """候选置换下的保真度（不修改线路：标签视图计算）。"""
-        f = 1.0
+        """候选置换下的对数保真度 Σlog(1−ε)（不修改线路：标签视图
+        计算）。2026-11-12 审查 P0-3：乘积在大型线路下溢，比较口径
+        统一为 log。"""
+        ssum = 0.0
         err2q = spec.calib.err_2q
         median2q = float(np.median(list(err2q.values()))) if err2q else 1e-3
         for inst in circ.ops:
@@ -1612,13 +1614,14 @@ def learned_relabel(policy, spec, circ: Circuit, final_layout: dict,
                 if a > b:
                     a, b = b, a
                 e = err2q.get((a, b), err2q.get((b, a), median2q))
-                f *= max(1.0 - float(e), 1e-12)
+                ssum += math.log(max(1.0 - float(e), 1e-12))
             else:
-                f *= max(1.0 - float(spec.calib.err_1q[qs[0]]), 1e-12)
+                ssum += math.log(max(1.0 - float(spec.calib.err_1q[qs[0]]),
+                                    1e-12))
         for inst in circ.measures:
             q = int(pi[int(inst.qubits[0])])
-            f *= max(1.0 - float(spec.calib.err_ro[q]), 1e-12)
-        return float(f)
+            ssum += math.log(max(1.0 - float(spec.calib.err_ro[q]), 1e-12))
+        return float(ssum)
 
     def legal(pi):
         for inst in circ.ops:
@@ -1648,7 +1651,8 @@ def learned_relabel(policy, spec, circ: Circuit, final_layout: dict,
 
     ops = [(i.name, tuple(int(q) for q in i.qubits)) for i in circ.ops]
     graph = build_program_graph(spec.n, ops, circuit_id="relabel")
-    fid_now = estimate_fidelity(circ, spec.calib)
+    from qtrail.pure.metrics import estimate_log_fidelity
+    fid_now = estimate_log_fidelity(circ, spec.calib)
 
     candidates = [np.arange(spec.n, dtype=np.int64)]  # 恒等（当前标签）
     try:
@@ -1669,7 +1673,9 @@ def learned_relabel(policy, spec, circ: Circuit, final_layout: dict,
     best = None
     for pi in candidates:
         fid_pi = fid_of_pi(pi)
-        if fid_pi > fid_now + 1e-12 and (best is None or fid_pi > best[0]):
+        # 2026-11-12 审查 P0-3：log 口径容差 1e-9（乘积口径的
+        # 1e-12 绝对容差在下溢区失去意义）
+        if fid_pi > fid_now + 1e-9 and (best is None or fid_pi > best[0]):
             best = (fid_pi, pi)
     if best is None:
         return 0
