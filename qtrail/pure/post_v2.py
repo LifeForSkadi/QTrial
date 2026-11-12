@@ -1502,14 +1502,26 @@ def noise_aware_relabel(circ: Circuit, spec, final_layout: dict,
 
     # 预计算：邻居表与代价（一次 O(L) 扫描；移动后增量更新）
     nbrs = {}
-    used = set()
+    used = set()          # 参与 2Q 门的位置（可移动候选）
+    occupied = set()      # 全部被占用的物理位（移动目标的禁止集）
     for inst in ops:
+        for q in inst.qubits:
+            occupied.add(int(q))
         if inst.nq == 2:
             a, b = int(inst.qubits[0]), int(inst.qubits[1])
             nbrs.setdefault(a, set()).add(b)
             nbrs.setdefault(b, set()).add(a)
             used.add(a)
             used.add(b)
+    # P0 修复（2026-11-12 审查代理捕获）：仅有 1Q 门/测量/布局端点的
+    # 比特也必须计入占用——此前 used 只由 2Q 门填充，C1 会把一个
+    # 逻辑比特挪到"只有 1Q 门的另一逻辑比特"上（双射破坏：两条线
+    # 合并、final_layout 撞车；复现 final_layout={0:2,1:1,2:2}）。
+    for m in circ.measures:
+        occupied.add(int(m.qubits[0]))
+    occupied.update(int(v) for v in final_layout.values())
+    if layout is not None:
+        occupied.update(int(v) for v in layout.values())
 
     def cost_of(p):
         return sum(edge_err(p, x) for x in nbrs.get(p, ()))
@@ -1525,7 +1537,7 @@ def noise_aware_relabel(circ: Circuit, spec, final_layout: dict,
             c_old = sum(edge_err(p, x) for x in p_nbrs)
             best = None
             for p_new in range(spec.n):
-                if p_new in disabled or p_new in used:
+                if p_new in disabled or p_new in occupied:
                     continue
                 # 合法性：所有 (p, x) → (p_new, x) 必须相邻
                 if not all(spec.adj[p_new, x] for x in p_nbrs):
@@ -1560,6 +1572,8 @@ def noise_aware_relabel(circ: Circuit, spec, final_layout: dict,
                 nbrs[p_new] = nbrs.pop(p)
                 used.discard(p)
                 used.add(p_new)
+                occupied.discard(p)
+                occupied.add(p_new)
                 n_moved += 1
                 improved = True
         if not improved:
