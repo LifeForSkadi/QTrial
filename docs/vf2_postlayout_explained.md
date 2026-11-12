@@ -1,0 +1,274 @@
+# VF2PostLayout 详解：节点是什么、为什么限 20、qiskit 凭什么敢全量
+
+> 写作日期：2026-11-12。回答项目负责人的四个疑问：
+> ① 节点是什么？② 为什么我们限 ≤20 活跃节点？③ 是运行时间限制吗？
+> ④ qiskit 敢激活全部活跃节点，底气是什么？
+>
+> 结论先行：**qiskit 并不是无限制搜索**——它同样有硬性搜索预算（call_limit +
+> max_trials），只是它的 VF2 实现在 Rust 里（快 2-3 个数量级），并且有 VF2++
+> 的节点排序启发式让好解尽早出现。我们的 20 是**纯 Python networkx 实现的速度
+> 妥协**，不是理论限制——换成 rustworkx 或自研实现后可以放开。
+
+---
+
+## §1 「节点」是什么：两张图
+
+### 1.1 两张图，节点都是"比特"
+
+**交互图（interaction graph）**——描述"线路本身"：
+- **节点 = 线路里被 2Q 门触碰的物理比特**（post-layout 阶段，线路已经被路由到
+  物理比特上，门标签就是物理位编号）。
+- **边 = 两个比特之间存在 2Q 门**（权重可以是门数，也可以是边误差）。
+- 例：一条 qft_10 路由后的线路用了物理位 {3, 12, 45, ...} 共 12 个，其中
+  有 2Q 门的是 10 个——交互图就是这 10 个节点 + 它们之间的门对。
+
+**耦合图（device coupling graph）**——描述"芯片硬件"：
+- **节点 = 器件全部物理比特**（天衍-287 是 105 个可用，禁用的 21/26/34/89 排除）。
+- **边 = 物理相邻、可以执行 cz 的比特对**（按设备配置 154/174/188 条边，取决
+  于设备口径）。
+
+### 1.2 子图同构 = "不改线路，只换标签"
+
+**问题**：给交互图里的每个节点找一个设备物理位，使得**所有交互边的两端在设备上
+也相邻**。这就是"子图同构"（subgraph isomorphism）：
+
+> 找一个单射 f: 交互图节点 → 设备节点，满足：若 (u,v) 是交互图的边，
+> 则 (f(u), f(v)) 必须是设备的边。
+
+**为什么这是合法的**（不改变语义）：重命名物理位 = 对整条线路施加一个全局置换 π。
+置换前后线路的酉矩阵只差一个比特标签重命名——物理上完全等价，只要
+**final_layout 同步更新**（逻辑比特 i 的最终位置从 v 改成 π(v)）。我们的
+实现里 C1/L3/VF2 重标记都同步更新 layout/final_layout/measure（这里历史上
+出过两次 bug，见 docs/academic_review_gaps.md §3.2）。
+
+**为什么有帮助**（两个收益）：
+1. **消除残余 SWAP**：路由结束时的 final_layout 是"路由过程中被迫的"排列；
+   换一个排列可能让交付线路里的长程门全部变相邻——那些 SWAP 就白插了。
+2. **换到噪声更低的边**：同一拓扑上不同边的校准误差可能差 5-10 倍（天衍逐边
+   cz 误差），重命名可以把 2Q 门搬到低误差边上。
+
+### 1.3 为什么"活跃节点"不是全部比特
+
+只在 2Q 门里出现的比特才有**结构约束**（它的相对位置决定了门能不能相邻）。
+只有 1Q 门的比特在交互图里是**孤立节点**——它在哪都行（不影响任何边），
+所以：
+- qiskit 的做法：`VF2PostLayout` 的文档明确说 "This pass will strip any idle
+  wires from the circuit"——把空闲线从图里剥掉，只对活跃子图做匹配，空闲
+  比特最后随便安置。
+- 我们的做法：交互图只由 2Q 门构建（且不含 swap 边——swap 正是要消除的对象），
+  匹配完后 `_complete_permutation` 把未涉及的比特补全成全域双射（防止两个
+  逻辑比特输出身份冲突）。
+
+注意一个易漏的边界：**只有 1Q 门的比特在"补全"时不能与活跃比特的目标撞车**——
+这正是我们 C1 双射 P0 bug 的教训（occupied 集合要包含所有被触碰的比特）。
+
+---
+
+## §2 我们的实现：限 20 的来龙去脉
+
+### 2.1 代码事实（`qtrail/pure/relabel_vf2.py`）
+
+```python
+def _exact_embedding(circ, spec, time_budget=15.0, max_active=20):
+    edges = _interaction_graph(circ)          # 2Q 门建图（不含 swap）
+    active = sorted({p for e in edges for p in e})
+    if len(active) > max_active:
+        return None                            # ← 超过 20 直接放弃精确嵌入
+    ...  # networkx GraphMatcher(G, H).subgraph_isomorphisms_iter()
+    # 枚举所有同构解，按 Σ(1−ε2q) 打分选最优；time_budget 在每次
+    # 枚举出一个解之后检查（生成器 yield 处）
+```
+
+- 精确嵌入的搜索用 **networkx 的 GraphMatcher**（纯 Python 实现的 VF2）。
+- 超过 20 活跃节点 → 放弃精确嵌入，走 `_partial_embedding`：**局部搜索**
+  （在活跃位置之间交换标签、最大化落在设备边上的加权门数）。它不保证
+  找到完美嵌入，调用方只在不劣于现状时采用。
+- 嵌入不完美时（部分嵌入），调用方还会把长程门链化——所以即使不精确也
+  保持合法性，只是质量差一些。
+
+### 2.2 为什么是 20：一次真实事故
+
+2026-11-12 的 graphstate_50 诊断（docs/pending_decisions.md 补充三十九）：
+
+- 当时 `max_active=60`、时间预算 15 秒。graphstate_50 有 **50 个活跃节点**，
+  进入精确嵌入搜索。
+- 结果：**900 秒超时 + SIGSEGV**。根因不是"50 个节点太多"，而是两个叠加：
+  1. **networkx 是纯 Python**——VF2 的状态空间搜索每次递归都是 Python 函数
+     调用，比 Rust 慢 2-3 个数量级。
+  2. **时间预算检查的位置错了**：networkx 的 `subgraph_isomorphisms_iter`
+     是生成器，我们的预算只在"产出一个解之后"检查。如果**第一个解的搜索本身
+     是指数的**（对称图上的回溯爆炸），预算根本不会被检查到——搜索在第一个
+     yield 之前就耗尽内存（SIGSEGV 的来源）。
+- 修复：max_active 60→20（超限走有界的部分嵌入）+ lnn 路径枚举封顶。修复后
+  graphstate_50 4.4 秒完成。
+
+**所以"≤20"是一个实现速度的妥协**：它的含义是"用纯 Python networkx 做精确
+搜索时，20 个活跃节点以内是安全的（毫秒~秒级），再多就可能指数爆炸"。
+**不是**"20 个以上在理论上不可行"。
+
+---
+
+## §3 qiskit 凭什么"敢"全量：四条底气（都有源码/参数依据）
+
+### 3.1 底气一：Rust 实现（rustworkx / qiskit._accelerate）
+
+qiskit 2.5 的 VF2PostLayout 的 `run()` 调的是
+`vf2_layout_pass_exact` / `vf2_layout_pass_average`（`qiskit._accelerate`，
+Rust 编译产物）。同样的 VF2 状态搜索在 Rust 里比 networkx 快 2-3 个数量级
+（qiskit 自己的代码注释都写了预算换算："Set call limit to ~60 sec with
+rustworkx 0.10.2"）。
+
+### 3.2 底气二：它也有硬性搜索预算（**这是最容易被忽略的事实**）
+
+qiskit 并不是"无限制地搜全部活跃节点"。`qiskit/transpiler/preset_passmanagers/
+common.py` 的 `get_vf2_limits()` 源码（O3 档）：
+
+```python
+elif optimization_level == 3:
+    limits = VF2Limits(
+        30_000_000,  # Set call limit to ~60 sec with rustworkx 0.10.2
+        250_000,     # Limits layout scoring to < 60 sec on ~400 qubit devices
+    )
+# In Qiskit 2.2, strict mode still includes heavy Python usage for the
+# semantics and scoring, so we dial the limits way down.
+if exact_match:
+    limits = VF2Limits(call_limit // 100 or 1, max_trials // 100 or 1)
+```
+
+- `call_limit` = **状态访问次数上限**（O3 默认 3000 万次 ≈ Rust 下 60 秒；
+  PostLayout 的精确模式再除以 100 → 30 万次）。
+- `max_trials` = **候选解数量上限**（O3 默认 25 万；精确模式 2500）。
+- 超预算就停，返回目前找到的最优解。
+
+也就是说：**qiskit 的"全量"= 把全部活跃节点丢给一个快引擎，然后用
+状态访问次数和候选数两个硬预算兜底**。它的底气是"预算内能搜完典型线路"，
+而不是"理论上不怕指数爆炸"。
+
+### 3.3 底气三：VF2++ 的节点排序启发式（arXiv:2209.15512）
+
+qiskit 的 pass 文档写明它用 VF2++ 算法。VF2++ 的核心改进是**节点排序**：
+优先展开"约束最强"（度数大、邻居稀有的）节点，让矛盾尽早暴露、好解尽早
+出现——同样的搜索预算下，先找到的候选解质量高得多。这是纯算法层的加速，
+与实现语言无关。
+
+### 3.4 底气四：只对活跃子图搜索 + 打分剪枝
+
+- 交互图只含被 2Q 门触碰的比特（"strip idle wires"）——图规模是"线路的
+  2Q 支撑集大小"，不是器件比特数。多数 benchmark 线路的活跃集远小于设备。
+- 打分用 ErrorMap（1Q/2Q 平均误差），并且**只接受比当前布局更好的解**
+  （stop_reason = "no better solution found" 是正常退出路径）——搜到一半
+  就能停。
+
+### 3.5 一个对我们特别重要的事实：对比实验里 qiskit 根本没跑 VF2PostLayout
+
+`get_vf2_limits()` 的第一行：
+
+```python
+if layout_method is None and initial_layout is None:
+    ...  # 只有"用户没给布局"时才返回预算
+return VF2Limits(None, None)  # 否则 None → VF2PostLayout 不启用
+```
+
+我们的对比实验（RL 布局注入 + O3）**总是提供 initial_layout**——所以
+qiskit 的 VF2PostLayout 在对比中**被完全跳过**（这一点在早前的布局争议
+实验里实证过）。它的 VF2 只在"让 qiskit 自己选布局"时启用。
+
+**含义**：我们与 qiskit O3 的对比中，重标记是我们独有的增益（对手没有）；
+我们的实现弱一些也不影响对比结论。但如果评委问"你们对标 qiskit 的
+VF2PostLayout 怎么比"，正确说法是："qiskit 在给定布局时不启用该 pass；
+我们实现了类似的 pass 并在自己的管线里启用，规模上限是工程约束（见下）。"
+
+---
+
+## §4 那 20 是必须的吗？——不是，三条路都能放开
+
+| 方案 | 工作量 | 预期效果 | 依赖 |
+|---|---|---|---|
+| **A. 换 rustworkx**（qiskit 用的同一个引擎，独立 PyPI 包） | 半天 | 与 qiskit 同速；活跃 50-100 也能秒级 | 可选依赖（缺失回退 networkx+20 上限） |
+| **B. 自研 VF2++**（Python 优化 + 预算检查进递归内部） | 1-2 天 | 比 networkx 快 1 个数量级，预算真正生效 | 无 |
+| **C. 分块 VF2**（按交互图连通分量分别嵌入） | 1 天 | 大线路精确嵌入；需处理分量间的"不撞车"约束 | 无 |
+
+**方案 C 的细节**（也是我之前提的"分块 VF2"）：
+- 交互图通常是多个连通分量（例如 qft 的比特链是连通的，但很多线路是
+  若干不连通的小块）。每个分量可以独立做子图同构搜索——搜索空间是
+  各分量之和而不是乘积。
+- **误差评分可按分量分解**：总分 = Σ分量内边误差，分量间没有边。
+- **但要解决跨分量冲突**：不同分量的映射不能共用同一个物理位。做法：
+  按分量排序依次嵌入（每个分量在"剩余设备子图"里搜），失败则换序
+  回溯；或维护已占用比特集合，搜索时把占用节点从目标图里临时删除。
+- 注意：分量的最优解不一定是全局最优（先嵌入的分量占了好位置）——
+  需要"按分量大小降序 + 回溯"或小规模联合优化。
+
+**方案 A 的一个细节**：rustworkx 是独立包（不依赖 qiskit），装它不违反
+"纯管线"的叙事（需在依赖清单里如实声明为可选加速）。实现上：
+`rustworkx.vf2_mapping` 或 `graph_vf2_mapping`，接口与 networkx 类似。
+
+---
+
+## §5 需要补的基础概念（简短版）
+
+### 5.1 图同构 vs 子图同构
+- **同构**：两个图节点一一对应且边完全对应（保结构）。
+- **子图同构**：把小图的节点单射到大图里，边全部对应（大图可以有多余
+  节点/边）。这里是"交互图 → 设备图"的单射。
+- **复杂度**：一般图同构是准多项式（Babai 2015），但**子图同构是
+  NP-完全的**——最坏情况指数。实践中的救命稻草是：量子线路的交互图
+  很稀疏（每比特度数 2-6），设备图度数也小（约 2-4），VF2 的可行性
+  剪枝（度数一致性、邻域一致性）非常有效。
+
+### 5.2 VF2 / VF2++ 算法
+- **VF2（Cordella et al., TPAMI 2001）**：在状态空间里逐步加"匹配对"，
+  每步用五条可行性规则剪枝（度数、邻居一致性等）。复杂度 O(V!·V) 最坏，
+  实际远低。
+- **VF2++（arXiv:2209.15512，量子布局语境）**：改进节点排序与剪枝顺序——
+  先处理约束最强的节点，把矛盾提前暴露。qiskit 的当前实现用它。
+
+### 5.3 为什么"重命名"能消 SWAP（直觉版）
+路由结束时，数据分散在一些物理位上，最后的排列是"路由历史"的副产品。
+同构映射允许把**整条线路的门**一起搬到更好的位置——只要 2Q 门对之间
+仍然相邻。这不是"移动门"，而是"给比特改名"：物理位编号是名字，
+线路结构（节点之间的相对关系）不变。名字可以随便换，只要
+final_layout 告诉系统"逻辑比特 i 现在在名字 π(i) 的物理位上"。
+
+---
+
+## §6 与其他薄弱点的衔接
+
+- **打分函数**：我们只按 2Q 边误差加权；qiskit 的 ErrorMap 同时含 1Q 与
+  2Q 平均误差（`add_error((0,0), ...)` 是 1Q）。补 1Q/读出项是一个
+  简单改进（半小时），但收益通常较小（2Q 误差主导）。
+- **规模上限的隐藏代价**：>20 活跃节点时我们退化到"局部搜索部分嵌入"，
+  它只保证"不劣于当前"，在大线路上的收益明显低于精确嵌入——这也是
+  large 层数字需要 log 口径重测的原因之一。
+- **与 C1/L3 的分工**：VF2 是精确嵌入（只做标签置换），C1 是贪心的
+  单步置换（每次移动一个比特、要求所有邻居仍相邻），L3 是学习式候选
+  生成。三者都受"同步更新 layout/final_layout/measure"这条纪律约束
+  （历史 bug 高发区）。
+
+---
+
+## §7 一页总结
+
+1. **节点**：交互图的节点 = 线路里被 2Q 门触碰的物理比特；设备图的节点 = 芯片
+   全部可用物理比特。子图同构 = 给比特换名字使所有 2Q 门落在相邻物理边上。
+2. **我们限 20 的原因**：networkx 纯 Python 实现的 VF2 + 预算检查在生成器
+   yield 处（第一个解之前不生效）——graphstate_50 的 900s+SIGSEGV 事故
+   （补充三十九）。**这是工程妥协，不是理论限制。**
+3. **qiskit 的底气**：Rust 实现（rustworkx/_accelerate）+ 硬预算
+   （O3：30M 状态访问 ≈60s、25 万候选；PostLayout 精确模式再除以 100）+
+   VF2++ 节点排序 + 只搜活跃子图/打分剪枝。它**不是**无限制搜索。
+4. **一个关键事实**：给定 initial_layout 时 qiskit 的 VF2PostLayout
+   **根本不启用**（get_vf2_limits 返回 None）——我们的对比实验里这个
+   pass 从未参与，重标记是我方独有增益。
+5. **放开 20 的三条路**：rustworkx（半天）> 分块 VF2（1 天）> 自研
+   VF2++（1-2 天）。推荐 A（可选依赖）作为第一步。
+
+### 参考文献
+- Cordella et al., *A (Sub)Graph Isomorphism Algorithm for Matching Large
+  Graphs*, IEEE TPAMI 23(12), 2001. —— VF2 原始算法。
+- *VF2++ for quantum layout*（qiskit VF2PostLayout 文档引用的 arXiv:2209.15512）。
+- qiskit 2.5.2 源码：`transpiler/passes/layout/vf2_post_layout.py`、
+  `transpiler/preset_passmanagers/common.py::get_vf2_limits`、
+  `qiskit/_accelerate`（Rust）。
+- 本项目：`qtrail/pure/relabel_vf2.py`（实现）、`docs/pending_decisions.md`
+  补充三十九（graphstate_50 事故与修复）、补充四十三（C1 双射修复）。
