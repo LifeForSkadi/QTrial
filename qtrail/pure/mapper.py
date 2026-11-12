@@ -1,7 +1,12 @@
-"""qiskit-free 映射管线：纯 Circuit 输入 → RL 布局 → 自研 SABRE 路由 →
-后处理栈 → CZ 基输出（qtrail/pure 包顶层入口）。
+"""自研映射管线（除可选的 2Q 块合成后端外零第三方运行时依赖）：
+纯 Circuit 输入 → RL 布局 → 自研 SABRE 路由 → 后处理栈 → CZ 基输出
+（qtrail/pure 包顶层入口）。
 
-复用 qiskit-free 组件：problems（程序图）、search（多起点/LS）、
+后端披露（2026-11-12 学术审查 P1-2）：A2 2Q 块合成默认调用
+qiskit 的 Weyl/KAK 闭式分解器（快路径，可选）；qiskit 缺失时自动
+回退自研 torch 合成。除该数值组件外全部决策逻辑与优化 pass 自研。
+
+复用同包组件：problems（程序图）、search（多起点/LS）、
 models（RL 策略，纯 PyTorch）、devices（DeviceSpec）；竞赛评分路由 =
 自研 sabre_route（廉价代理 + 最终执行一体）。
 """

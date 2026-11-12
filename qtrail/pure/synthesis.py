@@ -410,17 +410,15 @@ def fit_block_torch(U, init, steps=300, lr=0.1):
     return tn, ov
 
 
-def synth_block_analytic(U, pair):
-    """A2 块解析合成（2026-11-13，qiskit TwoQubitBasisDecomposer
-    机制——Weyl/KAK 闭式解，0.9ms/块、重叠 1.0000000000）。
+# A2 合成后端标记（诚实的后端披露，2026-11-12 学术审查 P1-2）：
+# "qiskit" = qiskit TwoQubitBasisDecomposer（Weyl/KAK 闭式解，快路径，
+#   唯一第三方数值组件——全部优化决策/pass 仍为自研）；
+# "torch" = 自研 KAK 初值 + 21 参数拟合（无 qiskit 依赖，慢 1-2 个
+#   数量级，qiskit 缺失时自动回退）。CLI/文档据此如实披露。
+A2_BACKEND = None  # 最近一次合成使用的后端（诊断/披露用）
 
-    替代 fit_block_torch 的数值拟合（300-500 步 backward/块——
-    qft25 卡 120s、hwb12 后处理数十分钟的机制根源）。qiskit 自动
-    给最小 cx 数（2 或 3）；输出 {u3, cx} 与 block_params_to_insts
-    同构（u3/u1/cx），下游 _to_cz_basis/_platformize 直接复用。
 
-    模板比特 0 → a、比特 1 → b。
-    """
+def _synth_block_qiskit(U, pair):
     from qiskit.synthesis.two_qubit import TwoQubitBasisDecomposer
     from qiskit.circuit.library import CXGate
     dec = TwoQubitBasisDecomposer(CXGate(), euler_basis="U3")
@@ -451,6 +449,46 @@ def synth_block_analytic(U, pair):
         else:
             raise ValueError(f"解析合成输出未支持的门 {name}")
     return out
+
+
+def _synth_block_torch(U, pair):
+    """自研回退后端：KAK 精确分解 + 21 参数模板数值拟合。
+
+    无 qiskit 依赖；慢（300-500 步 Adam/块）——仅在 qiskit 不可用
+    时启用，保证管线正确性与零第三方依赖可选性。
+    """
+    dec = kak_decompose(np.asarray(U, dtype=complex))
+    init = np.zeros(21)
+    for idx, K in enumerate((dec["K1"], dec["K2"])):
+        init[3 * idx:3 * idx + 3] = _su2_euler(K)
+    for idx, K in enumerate((dec["K3"], dec["K4"])):
+        init[14 + 3 * idx:14 + 3 * idx + 3] = _su2_euler(K)
+    init[6:14] = _init_3cx_params(dec["k"])
+    t, ov = fit_block_torch(U, init, steps=400)
+    if ov < 1 - 1e-7:
+        raise RuntimeError(f"torch 合成未收敛 ov={ov}")
+    return block_params_to_insts(t, pair)
+
+
+def synth_block_analytic(U, pair):
+    """A2 块合成（双后端，2026-11-12 审查 P1-2 诚实化）。
+
+    默认 qiskit 后端（TwoQubitBasisDecomposer——Weyl/KAK 闭式解，
+    0.9ms/块、自动最小 cx 数 2/3）；qiskit 不可用时回退自研
+    torch 后端（KAK 初值 + 21 参数拟合，慢但无依赖）。
+    输出 {u3, cx} 与 block_params_to_insts 同构（u3/u1/cx），
+    下游 _to_cz_basis/_platformize 直接复用。模板比特 0 → a、
+    比特 1 → b。
+    """
+    global A2_BACKEND
+    try:
+        out = _synth_block_qiskit(U, pair)
+        A2_BACKEND = "qiskit"
+        return out
+    except ImportError:
+        out = _synth_block_torch(U, pair)
+        A2_BACKEND = "torch"
+        return out
 
 
 def block_params_to_insts(t, pair):
