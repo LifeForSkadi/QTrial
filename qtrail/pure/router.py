@@ -48,7 +48,7 @@ _DEBUG_LAYER = False
 
 
 def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
-                lam_ms: float = 0.0, w_ext: float | None = 0.0,
+                lam_ms: float = 0.0, w_ext: float | None = None,
                 decay_pen: float = 0.0, tabu_window: int = 0,
                 tabu_mult: float = 1000.0, tabu_decay: float = 0.0,
                 tabu_scope: str = "edge", tabu_count: bool = False,
