@@ -178,6 +178,10 @@ def download_tianyan287_spec(machine: str = "tianyan-287",
         g.add_nodes_from(range(n))
         g.add_edges_from(edges)
         dist = nx.floyd_warshall_numpy(g).astype(np.float32)
+        # 禁用比特在图中是孤立点 → Floyd 距离为 inf；必须替换为有限
+        # 大距离，否则 router 的 int64 转换/策略 logits 会变 NaN
+        # （2026-11-13 tianyan176 真机映射复现）。
+        dist[np.isinf(dist)] = float(n * 10)
         noise_dist = dist.copy()  # topology-only noise fallback
         from qtrail.devices.spec import _featurize
         if coords is None:
