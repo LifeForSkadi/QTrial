@@ -1094,9 +1094,9 @@ def _cluster_cz_segments(out_ops: list) -> int:
             flush()
             out.append(inst)
     flush()
-    moved = len(out_ops)
+    n_before = len(out_ops)
     out_ops[:] = out
-    return moved - len(out)
+    return n_before - len(out)  # 实际移动数（审查 P2-2：原恒返回 0）
 
 
 def _sort_segment_1q(out_ops: list) -> int:
