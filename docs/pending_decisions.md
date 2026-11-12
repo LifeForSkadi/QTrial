@@ -1630,3 +1630,39 @@ Inst 冻结，2-3 天）。预注册判据先行。
 
 **下一步**：§5 第 5 项（时间感知保真度模型：门时间 + T1/T2 + rz=0 +
 swap 折算，2-3 天）。预注册判据先行。
+
+### -10 补充五十一（2026-11-13，执行顺序第 5 项完成：时间感知保真度模型）
+
+**完成内容**：
+1. `qtrail/pure/metrics.py` 新增时间感知对数保真度：
+   - 门时间表（sx/x 30ns、cz 60ns、swap 180ns、rz/u1 0、读出 1µs 量级）；
+   - ASAP 调度（逐门取两端比特最早空闲时刻），空闲等待按 T1/Tφ 退相干
+     （Tφ 由 1/T2=1/(2T1)+1/Tφ 反解；ε_idle≈(1−e^{−t/T1})/3+
+     (1−e^{−t/Tφ})/3）；
+   - rz/u1 虚拟门零误差零时间；swap 按 3 个 2Q（误差 1−(1−ε)³、
+     时间 3×t_2q）；读出误差 + 全局末时刻等待；
+   - 返回 (log 保真度, 线路时间 µs)。
+2. 开关 `QTRAIL_FIDELITY_MODEL=product|time`（默认 product，历史口径
+   可复现）；`compute_metrics` 恒返回 `log_est_fidelity_product` /
+   `log_est_fidelity_time` / `est_time_us`，活跃口径写入
+   `log_est_fidelity`/`est_fidelity`。
+3. 测试 `tests/test_fidelity_time.py`（5 项）全过。
+4. A/B 脚本 `scripts/ab_fidelity_model.py`（6 语料：qft5/ghz10/qaoa12/
+   heis16/qft20/N25，代理口径）。
+
+**预注册判据与裁决**（判据见脚本与测试文件头）：
+- C1 2Q 不增 / C2 1Q、depth ≤+2% / C3 time 自评不降 / C4 墙钟 ≤+5%
+  —— 全部通过，且 time 与 product 的**交付产物逐项完全相同**
+  （1Q/2Q/depth/时间模型分数一致）。
+- 绝对口径示例：qft20 product logf −23.91 vs time −27.99（38µs 线路的
+  空闲退相干显式化）——更物理，但不改变现有语料上的候选排序。
+- **裁决：作为可选口径合入（默认 product）；587 表格保持 product 口径。
+  time 作报告默认需按新口径重跑/重评 587（含基线同口径重算）——
+  记为后续批次任务。**
+
+**测试状态**：`python -m pytest tests/ -q` → 202 passed（+5），
+2 pre-existing failures（同前）。
+
+**下一步**：§5 第 6 项（自研 VF2++，规格已确认，见
+vf2_postlayout_explained.md §8.4；预注册判据已在 pending_decisions
+补充四十六记录）。

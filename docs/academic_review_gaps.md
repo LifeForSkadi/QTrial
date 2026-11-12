@@ -85,6 +85,11 @@ SABRE（Li, Ding, Xie, ASPLOS 2019）的核心：
 - 数值下溢：10^4 门的线路，F 会小到 1e-300 以下变成 0——**比较两个候选时
   乘积值完全失去分辨力**（已改用对数口径 Σlog(1−ε)，本次 P0-3 修复）。
 
+**时间感知模型（2026-11-13 新增，可选口径）**：ASAP 调度后计门误差 +
+空闲 T1/Tφ 退相干 + rz 零误差/零时间 + swap 按 3 个 2Q 折算 + 读出时间；
+由 `QTRAIL_FIDELITY_MODEL=time` 启用（默认仍为乘积口径，历史 587 数字
+保持不变）。判据与 A/B 见 §3.3。
+
 ### 1.5 不动点迭代 vs 线性 pass（理解 §3.4 需要）
 
 编译器优化有两种组织方式：
@@ -260,6 +265,26 @@ if len(ops[k].qubits) == 1 and deps[k] <= chain_set:
 站得住；把口径换成更物理的模型会让所有数字变化但**相对排序大概率不变**。
 建议作为"论文/报告的诚实性声明"处理（明确写"模型为乘积模型，仅用于相对
 排序"），而不是立刻重写——除非评委明确要求物理保真度。
+
+**已完成（2026-11-13 第 5 项）：时间感知模型（opt-in）**
+`metrics.py` 新增 `_time_log_fidelity`：ASAP 调度（逐门最大空闲时刻）→
+① 门误差（1Q err_1q；rz/u1 虚拟门 0 误差 0 时间；2Q err_2q；swap 按
+3 个 2Q 折算 1−(1−ε)³、3×t_2q）；② 空闲退相干（Tφ 由 1/T2=1/(2T1)+1/Tφ
+反解，ε_idle≈(1−e^{−t/T1})/3+(1−e^{−t/Tφ})/3）；③ 读出误差 + 全局末时刻
+等待。时间常数：sx/x 30ns、cz 60ns、读出 1µs 量级（平台无逐门时间表，
+类别常数，见度量文档字符串）。
+- 开关 `QTRAIL_FIDELITY_MODEL=product|time`（默认 product，历史口径保持
+  可复现；time 为可选口径）。
+- `compute_metrics` 恒返回 `log_est_fidelity_product` /
+  `log_est_fidelity_time` / `est_time_us` 三个新字段，便于 A/B 与披露。
+- 测试 `tests/test_fidelity_time.py`（5 项：rz 虚拟/门时间与 swap 折算/
+  空闲单调性/最小线路与乘积一致/口径切换）。
+- A/B（`scripts/ab_fidelity_model.py`，6 语料代理口径）：time 与 product
+  的**交付产物逐项相同**（判据 C1-C4 全过）——模型在现有语料上不改变
+  决策，但给出更物理的绝对口径（如 qft20：product −23.91 vs time −27.99，
+  38µs 线路的退相干代价显式化）。
+- **诚实边界**：587 表格仍为 product 口径；若把 time 作为报告默认，需
+  用新口径重跑/重评 587（含 qiskit 基线同口径重算）。
 
 ---
 
@@ -476,7 +501,7 @@ torch 拟合路线可行但慢 1-2 个数量级（300-500 步/块）。
 | 2 | ✅ 生产路径语义回归门禁进 pytest（2026-11-13 完成：tests/test_production_semantics.py，6 语料 × linear/fixpoint × 全候选路径 × 特殊角，24 项全过；门禁当场抓到 fixpoint 路径 h/u2 未翻译的非法门泄漏并修复） | 1 天 | 审查代理抓 bug 的速度 ←→ CI 自动抓 |
 | 3 | ✅ 自研闭式 3-CX 合成（Vatan-Williams 公式）（2026-11-13 完成：qtrail/pure/weyl.py，Drury-Love Weyl + 退化类规范化 + VW 3-CX，零 qiskit 运行时依赖；260 项单元验证 + 生产 A/B 全过，默认后端 vw） | 1-2 天 | 去掉 A2 的 qiskit 依赖，叙事完整 |
 | 4 | ✅ 候选状态类型化（CandidateResult + 帧标记 + Inst 冻结）（2026-11-13 完成：qtrail/pure/candidates.py + Inst(frozen=True) + tests/test_candidate_frame.py；黄金门流重构前后逐门一致） | 2-3 天 | 根治共享可变状态类 bug |
-| 5 | 时间感知保真度模型（门时间 + T1/T2 + rz=0 + swap 折算） | 2-3 天 | 论文级指标可信度；数字会变，相对排序大概率不变 |
+| 5 | ✅ 时间感知保真度模型（2026-11-13 完成：metrics._time_log_fidelity，门时间 + T1/Tφ 空闲退相干 + rz=0 + swap=3×2Q + 读出时间；QTRAIL_FIDELITY_MODEL=time 可选口径，compute_metrics 恒返回双模型字段；5 项测试 + 6 语料 A/B 产物不变） | 2-3 天 | 论文级指标可信度；数字会变，相对排序大概率不变 |
 | 6 | **自研 VF2++（方案 B）**（原"分块 VF2"已否决，规格见 vf2_postlayout_explained.md §8.4） | 1 天 | >20 活跃节点的精确嵌入覆盖率（当前按构造 0%） |
 | 7 | 开关收敛/死代码清理（15 参数 → 3 参数） | 1 天 | 可维护性 |
 
@@ -539,7 +564,9 @@ pending_decisions.md + negative_results_ledger.md。
    **已完成（2026-11-13）**：T6 + `CandidateResult` 帧标记（content 帧
    构造时强制 input_layout==final_layout）+ Inst 冻结；黄金门流不变。
 3. **保真度模型是代理指标**（下溢/无物理时间/rz 计误差）——相对比较有效，
-   绝对声称要谨慎。
+   绝对声称要谨慎。**已补时间感知模型（2026-11-13，opt-in）**：
+   门时间 + T1/Tφ 空闲退相干 + rz=0 + swap 折算 + 读出；默认口径仍为
+   product（历史数字可复现），time 由 QTRAIL_FIDELITY_MODEL=time 启用。
 
 **叙事上的三个必须如实**：
 1. 路由器是 qiskit SabreSwap 的语义复现 + 自研前瞻，不是 LightSABRE。

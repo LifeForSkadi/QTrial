@@ -43,6 +43,7 @@ REQUIRED_SCRIPTS = [
     "ab_router_kernel.py",
     "verify_all_legality.py",
     "ab_a2_backend.py",
+    "ab_fidelity_model.py",
 ]
 
 
