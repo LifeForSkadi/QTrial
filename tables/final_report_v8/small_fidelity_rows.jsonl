@@ -104,11 +104,11 @@
 {"circuit": "bp_variational_n4_variational_n4_transpiled", "n": 4, "qt_swaps": 0, "qt_depth": 45, "qt_twoq_depth": 12, "qt_fidelity": 0.8852680197465782, "qt_wall": 3.51}
 {"circuit": "bp_vqe_n4_vqe_n4", "n": 4, "qt_swaps": 0, "qt_depth": 34, "qt_twoq_depth": 7, "qt_fidelity": 0.8825232094432263, "qt_wall": 3.75}
 {"circuit": "bp_vqe_n4_vqe_n4_transpiled", "n": 4, "qt_swaps": 0, "qt_depth": 34, "qt_twoq_depth": 7, "qt_fidelity": 0.8959587023142994, "qt_wall": 2.85}
-{"circuit": "bp_vqe_uccsd_n4_vqe_uccsd_n4", "n": 4, "qt_swaps": 0, "qt_depth": 215, "qt_twoq_depth": 83, "qt_fidelity": 0.6670961737028215, "qt_wall": 3.49}
+{"circuit": "bp_vqe_uccsd_n4_vqe_uccsd_n4", "n": 4, "qt_swaps": 0, "qt_depth": 214, "qt_twoq_depth": 83, "qt_fidelity": 0.676643873307564, "qt_wall": 5.05}
 {"circuit": "bp_vqe_uccsd_n4_vqe_uccsd_n4_transpiled", "n": 4, "qt_swaps": 0, "qt_depth": 203, "qt_twoq_depth": 83, "qt_fidelity": 0.7074430517050423, "qt_wall": 8.16}
-{"circuit": "bp_vqe_uccsd_n6_vqe_uccsd_n6", "n": 6, "qt_swaps": 28, "qt_depth": 2591, "qt_twoq_depth": 1091, "qt_fidelity": 0.004765450680821248, "qt_wall": 18.33}
+{"circuit": "bp_vqe_uccsd_n6_vqe_uccsd_n6", "n": 6, "qt_swaps": 28, "qt_depth": 2665, "qt_twoq_depth": 1091, "qt_fidelity": 0.005110875487967591, "qt_wall": 18.53}
 {"circuit": "bp_vqe_uccsd_n6_vqe_uccsd_n6_transpiled", "n": 6, "qt_swaps": 24, "qt_depth": 2488, "qt_twoq_depth": 1074, "qt_fidelity": 0.006248039994492702, "qt_wall": 16.66}
-{"circuit": "bp_vqe_uccsd_n8_vqe_uccsd_n8", "n": 8, "qt_swaps": 163, "qt_depth": 13099, "qt_twoq_depth": 5642, "qt_fidelity": 3.185584191233109e-14, "qt_wall": 79.37}
+{"circuit": "bp_vqe_uccsd_n8_vqe_uccsd_n8", "n": 8, "qt_swaps": 163, "qt_depth": 13658, "qt_twoq_depth": 5642, "qt_fidelity": 3.7412096693341995e-14, "qt_wall": 69.16}
 {"circuit": "bp_vqe_uccsd_n8_vqe_uccsd_n8_transpiled", "n": 8, "qt_swaps": 214, "qt_depth": 12971, "qt_twoq_depth": 5760, "qt_fidelity": 1.618718006612303e-13, "qt_wall": 82.78}
 {"circuit": "bp_wstate_n3_wstate_n3", "n": 3, "qt_swaps": 2, "qt_depth": 44, "qt_twoq_depth": 13, "qt_fidelity": 0.9146088663729633, "qt_wall": 3.18}
 {"circuit": "bp_wstate_n3_wstate_n3_transpiled", "n": 3, "qt_swaps": 2, "qt_depth": 45, "qt_twoq_depth": 13, "qt_fidelity": 0.913236190677892, "qt_wall": 3.26}

@@ -1,5 +1,8 @@
 """功能等价性验证：映射优化后的线路是否保持原线路的量子功能。
 
+依赖说明（独立审计 P1-1）：本模块使用 qiskit `Statevector`，属于
+实验/验证依赖；交付映射管线 `qtrail.pure_cli` 本身零 qiskit。
+
 两种模式（按规模自动选择）：
   精确模式（n ≤ max_qubits）：全空间态矢量比较，|⟨ψ_orig|ψ_mapped⟩|² ≥ threshold
   随机化模式（n > max_qubits）：随机直积输入态采样 K 个，比较输出态保真度均值

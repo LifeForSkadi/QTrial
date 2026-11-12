@@ -73,7 +73,13 @@ def main():
     lines = ["# QTrial v8 分层汇总（2026-11-13 新管线）\n\n",
              "v8 = v7 同口径 + A2 自研 VW 合成（默认）+ 自研 VF2++ "
              "精确嵌入 + 候选类型化/Inst 冻结。基线数字读旧表"
-             "（基线未重跑，管线改动不影响基线）。\n"]
+             "（基线未重跑，管线改动不影响基线）。\n\n",
+             "口径注记（独立审计 P1-2）：\n",
+             "- 估计保真度为**乘积代理** exp(log)；large 层乘积下溢为 0，"
+             "相对比值无物理意义，跨方法应看 2Q 深度/门数与 log 口径。\n",
+             "- 基线 SWAP 列是 qiskit `count_ops(\"swap\")` 口径（swap 已分解"
+             "为 cz，恒 0），不可与 QTrial 残留 swap 直接比较。\n",
+             "- medium 为 255/259 完成子集（4 条 900s 超时，见行文件）。\n"]
     for bucket in BUCKETS:
         rows = []
         main_p = OUT / f"{bucket}_fidelity_rows.jsonl"

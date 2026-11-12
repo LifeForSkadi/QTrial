@@ -243,7 +243,7 @@ python scripts/run_training.py --dev cuda
 python -m pytest tests/ -q
 ```
 
-全绿是 109 个测试（本地 `.tianyan_key` 存在时 `test_platform_verifier_needs_key` 会因环境假设失败，属预期）。最值钱的两类：态矢量等价（路由/后处理保不保语义）和 A/B 门禁（优化前后结果是否逐位一致）。改 `qtrail/pure/` 下任何东西之后，跑一遍 `tests/test_pure.py` 是最低要求。
+全绿是 232 个测试（本地 `.tianyan_key` 存在时 `test_platform_verifier_needs_key` 会因环境假设失败，属预期；`test_fit_block_torch_exact` 为已知容差失败）。最值钱的两类：态矢量等价（路由/后处理保不保语义）和 A/B 门禁（优化前后结果是否逐位一致）。改 `qtrail/pure/` 下任何东西之后，跑一遍 `tests/test_pure.py` 是最低要求。
 
 ---
 

@@ -116,6 +116,8 @@ def main():
                     help="只跑指定层（并行分片用）")
     ap.add_argument("--timeout", type=float, default=900)
     ap.add_argument("--seeds", type=int, default=16)
+    ap.add_argument("--out-dir", default="tables/final_report_v8",
+                    help="输出目录（默认 v8；v7-pre-linear 旧表保留）")
     args = ap.parse_args()
     shard_id = shard_n = None
     if args.shard:
@@ -138,10 +140,11 @@ def main():
     print(f"circuits: small {len(buckets['small'])} / medium "
           f"{len(buckets['medium'])} / large {len(buckets['large'])} "
           f"(total {total})", flush=True)
-    OUT.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
     suffix = (f"_{buckets_sel[0]}_shard{shard_id}"
               if shard_id is not None else f"_{buckets_sel[0]}")
-    out_file = OUT / f"legality_rows{suffix}.jsonl"
+    out_file = out_dir / f"legality_rows{suffix}.jsonl"
     done = set()
     if out_file.exists():
         for line in out_file.read_text(encoding="utf-8").splitlines():
@@ -175,6 +178,12 @@ def main():
                     final_qc = res["routed_circuit"]
                     m = res["metrics"]
                     probs = check_legality(final_qc, spec)
+                    # 独立审计 P2-2：布局必须是单射（否则静默重复物理位）
+                    fin = {int(k): int(v)
+                           for k, v in res.get("final_layout", {}).items()}
+                    if len(fin) != len(set(fin.values())):
+                        probs.append(f"layout非单射 {len(fin)}->"
+                                     f"{len(set(fin.values()))}")
                     row["legal"] = not probs
                     if probs:
                         row["violations"] = probs[:8]

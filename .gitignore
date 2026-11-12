@@ -51,6 +51,7 @@ delivery/
 # ===== 分片原始数据（合并后的主行文件与 summary 入库） =====
 tables/final_report_v7/*_shard*.jsonl
 tables/final_report_v8/*_shard*.jsonl
+tables/final_report_v8/legality_rows*.jsonl
 tables/final_report_v7/summary.md
 tables/final_report_v8/summary.md
 tables/final_report_v7_pre_linear/

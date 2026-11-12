@@ -1,4 +1,4 @@
-{"circuit": "bp_clifford_clifford_100_12345", "n": 100, "qt_swaps": 11937, "qt_depth": 40837, "qt_twoq_depth": 18815, "qt_fidelity": 1.716113824458582e-142, "qt_wall": 86.31}
+{"circuit": "bp_clifford_clifford_100_12345", "n": 100, "qt_swaps": 11937, "qt_depth": 40848, "qt_twoq_depth": 18817, "qt_fidelity": 1.527029824367594e-142, "qt_wall": 66.92}
 {"circuit": "bp_dtc_dtc_100_cx_12345", "n": 100, "qt_swaps": 3067, "qt_depth": 17909, "qt_twoq_depth": 5378, "qt_fidelity": 4.4643622258086855e-159, "qt_wall": 49.63}
 {"circuit": "bp_dtc_dtc_100_cz_12345", "n": 100, "qt_swaps": 2637, "qt_depth": 16818, "qt_twoq_depth": 5056, "qt_fidelity": 9.29821993206217e-141, "qt_wall": 60.5}
 {"circuit": "bp_feynman_gf2^32_mult", "n": 96, "qt_swaps": 3974, "qt_depth": 12599, "qt_twoq_depth": 4549, "qt_fidelity": 1.0855541953412803e-69, "qt_wall": 88.35}

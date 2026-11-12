@@ -6,6 +6,7 @@ sx/sxdg、用户自定义 gate 定义（含多行，递归展开）、measure、
 """
 from __future__ import annotations
 
+import ast
 import math
 import re
 from pathlib import Path
@@ -21,7 +22,7 @@ NUM_RE = re.compile(r"^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$")
 QELIB1 = {
     "h": ("u3", (math.pi / 2, 0.0, math.pi)),
     "x": ("u3", (math.pi, 0.0, math.pi)),
-    "y": ("u3", (math.pi / 2, math.pi / 2, math.pi / 2)),
+    "y": ("u3", (math.pi, math.pi / 2, math.pi / 2)),
     "z": ("u1", (math.pi,)),
     "s": ("u1", (math.pi / 2,)),
     "sdg": ("u1", (-math.pi / 2,)),
@@ -35,10 +36,32 @@ class QASMError(ValueError):
     pass
 
 
+_EVAL_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant,
+               ast.Name, ast.Load, ast.Add, ast.Sub, ast.Mult, ast.Div,
+               ast.Pow, ast.USub, ast.UAdd, ast.Mod)
+
+
 def _eval(expr: str, binds: dict[str, float]) -> float:
-    expr = re.sub(r"\bpi\b", str(math.pi), expr).replace("^", "**")
-    env = {"__builtins__": {}, **binds}
-    return float(eval(expr, env))  # noqa: S307 词法受限白名单
+    """受限表达式求值：数字/参数名 + 四则运算/乘方/取模。
+
+    独立审计 P2-4：此前 `eval` 仅清空 `__builtins__`，仍可经
+    `().__class__.__bases__ ...` 逃逸；改为 AST 白名单后再求值。
+    """
+    expr = re.sub(r"\bpi\b", repr(math.pi), expr).replace("^", "**")
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as e:
+        raise QASMError(f"bad expression: {expr[:60]}") from e
+    for node in ast.walk(tree):
+        if not isinstance(node, _EVAL_NODES):
+            raise QASMError(f"unsupported expression: {expr[:60]}")
+        if isinstance(node, ast.Name) and node.id not in binds:
+            raise QASMError(f"unknown parameter: {node.id}")
+        if isinstance(node, ast.Constant) and not isinstance(
+                node.value, (int, float)):
+            raise QASMError(f"non-numeric constant: {expr[:60]}")
+    return float(eval(compile(tree, "<qasm>", "eval"),
+                      {"__builtins__": {}}, dict(binds)))
 
 
 def _split_top(text: str) -> list[str]:
@@ -107,6 +130,7 @@ def parse_qasm(text: str) -> Circuit:
     qreg_order, creg_order = [], []
     gates: dict[str, _GateDef] = {}
     circuit = None
+    measured: set[int] = set()  # 已测量比特（mid-circuit measure 守卫）
 
     def q_index(name, idx):
         base = 0
@@ -165,6 +189,12 @@ def parse_qasm(text: str) -> Circuit:
         qubits = tuple(q_index(m2.group(1), int(m2.group(2)))
                        if isinstance(r, str) and (m2 := QARG_RE.match(r))
                        else r for r in qrefs)
+        # 独立审计 P2-3：Circuit.measures 在路由器中统一末尾发射；
+        # 若测量后同一比特再被量子门作用，产物语义不等价——显式拒绝。
+        if any(q in measured for q in qubits):
+            raise QASMError(
+                "mid-circuit measure unsupported: gate after measure on "
+                f"qubit(s) {sorted(set(qubits) & measured)}")
         pvals = [_eval(e, binds) for e in pexprs]
         if name in ("cx", "CX"):
             emit(Inst("cx", qubits))
@@ -241,7 +271,9 @@ def parse_qasm(text: str) -> Circuit:
             continue
         m = re.match(rf"measure\s+{QARG_RE.pattern}\s*->\s*{QARG_RE.pattern};?", s)
         if m:
-            emit(Inst("measure", (q_index(m.group(1), int(m.group(2))),),
+            q = q_index(m.group(1), int(m.group(2)))
+            measured.add(q)
+            emit(Inst("measure", (q,),
                       cbits=(c_index(m.group(3), int(m.group(4))),)))
             continue
         if s.startswith("opaque") or s.startswith("if") or s.startswith("reset"):

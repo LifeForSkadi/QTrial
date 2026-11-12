@@ -191,10 +191,16 @@ def main():
                 if terr is not None:
                     row["qt_error"] = f"timeout_{args.timeout:.0f}s"
                 else:
+                    m = res["metrics"]
                     row["qt_swaps"] = res["swap_count"]
-                    row["qt_depth"] = res["metrics"]["depth"]
-                    row["qt_twoq_depth"] = res["metrics"]["twoq_depth"]
-                    row["qt_fidelity"] = res["metrics"]["est_fidelity"]
+                    row["qt_depth"] = m["depth"]
+                    row["qt_twoq_depth"] = m["twoq_depth"]
+                    row["qt_twoq_count"] = m.get("twoq_count")
+                    row["qt_fidelity"] = m["est_fidelity"]
+                    # 独立审计 P1-2：同时落 log 口径（乘积下溢时唯一可用）
+                    row["qt_logf_product"] = m.get("log_est_fidelity_product")
+                    row["qt_logf_time"] = m.get("log_est_fidelity_time")
+                    row["qt_est_time_us"] = m.get("est_time_us")
                     row["qt_wall"] = round(time.time() - t0, 2)
             except Exception as e:
                 row["qt_error"] = f"{type(e).__name__}: {str(e)[:60]}"
@@ -295,8 +301,10 @@ def main():
                 f"{fmt(stat3(v3, 'qt', 'swaps' if key == 'qt_swaps' else 'depth' if key == 'qt_depth' else 'twoq_depth' if key == 'qt_twoq_depth' else 'fidelity'))} | "
                 f"{fmt(stat3(old, 'aw_o3', 'swaps' if key == 'qt_swaps' else 'depth' if key == 'qt_depth' else 'twoq_depth' if key == 'qt_twoq_depth' else 'fidelity'))} | "
                 f"{fmt(stat3(old, 'tket', 'swaps' if key == 'qt_swaps' else 'depth' if key == 'qt_depth' else 'twoq_depth' if key == 'qt_twoq_depth' else 'fidelity'))} |\n")
-    (OUT / "summary.md").write_text("".join(lines), encoding="utf-8")
-    print(f"\n汇总 -> {OUT / 'summary.md'}")
+    # 独立审计 P1-4：分片脚本不再写 summary.md——该块是 v7 表头 +
+    # 分片局部数据，曾与 aggregate_v8 的 summary_v8.md 混淆。
+    # 最终分层汇总统一由 scripts/aggregate_v8.py 生成。
+    print("分片完成；最终汇总运行 scripts/aggregate_v8.py")
 
 
 if __name__ == "__main__":

@@ -439,6 +439,14 @@ class PureMapper:
         if circ.n > self.spec.n:
             raise ValueError(f"circuit uses {circ.n} qubits but device "
                              f"{self.spec.name} has {self.spec.n}")
+        # 独立审计 P2-2：禁用比特不可用；只用 spec.n 检查会让超容量
+        # 线路在启发式/RL 解码里回绕出重复物理位（静默语义错误）。
+        usable = self.spec.n - len(set(self.spec.disabled_qubits))
+        if circ.n > usable:
+            raise ValueError(
+                f"circuit uses {circ.n} qubits but device {self.spec.name} "
+                f"has only {usable} usable qubits "
+                f"({len(set(self.spec.disabled_qubits))} disabled)")
         graph = build_program_graph(circ.n, _ops_from_circuit(circ),
                                     circuit_id=circuit_id,
                                     temporal_alpha=self.cfg.graph.temporal_alpha)

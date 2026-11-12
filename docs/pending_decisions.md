@@ -1860,3 +1860,73 @@ v7 同口径）。产物 `tables/final_report_v8/{bucket}_fidelity_rows.jsonl`
 满足真机合法 + 语义正确；v8 相对报告书主基线 RL+感知 O3 在 small
 持平/略优、medium 明显更优（1.404/76%），相对 Qiskit 自带噪声感知
 O3 仍有差距（如实披露）。
+
+### -13 补充五十六（2026-11-13，独立审计复核：y 门 P0 修复 + P1/P2 处置）
+
+**来源**：`docs/independent_audit_20261112.md`（另一 agent，审计基线
+HEAD 1cf1109 + delivery 快照）。逐项复核结论与处置如下。
+
+**P0-1 `y` 门解析错误——已复现并修复**：
+- 复现：`qasm.py` 原 `"y": u3(pi/2, pi/2, pi/2)`；qiskit Operator
+  重叠 **0.707106781187**（正确应为 `u3(pi, pi/2, pi/2)`，重叠 1.0）。
+- 修复：`qtrail/pure/qasm.py` 一行；新增
+  `tests/test_qasm_qelib1.py`（17 个 qelib1 门 × qiskit Operator 对照
+  + y 专项 + AST/measure 守卫，21 项）。
+- 影响面扫描（587 条逐条 regex）：**4 条**含 y——small
+  `bp_vqe_uccsd_n4/n6/n8`（原始版）、large
+  `bp_clifford_clifford_100_12345`；已用修复后解析器重跑并回写 v8
+  主行/分片行。
+- 数字影响：修复后 small 均值 **0.7350**（原 0.7349），medium/large
+  不变。注意：审计"排除 y 行后 small +1.7%"是**排除假设**，不是修复
+  结果；本管线保真度是门数代理，y 修正主要改变语义而非门数，故数值
+  近乎不变——但**输入含 y 时线路不再被静默改写**（这是 P0 的实质）。
+
+**P2 修复**：
+- P2-3 mid-circuit measure：解析器显式拒绝"测量后同一比特再作用
+  量子门"（`Circuit.measures` 末尾统一发射，否则语义不等价）；测试
+  覆盖拒绝 + 正常末端测量。
+- P2-4 `_eval` 代码执行面：清除 `__builtins__` 的 `eval` 改为
+  **AST 白名单**（仅数字/参数名/四则/乘方/取模），拒绝属性、调用、
+  下标链；测试覆盖逃逸用例。
+- P2-2 设备容量：`PureMapper.map_circuit` 入口拒绝
+  `circ.n > 可用物理比特`（真机 105−4=101）；`heuristic_layout` 删除
+  `path[k % len(path)]` 回绕，改为显式报错；新增
+  `tests/test_capacity_guard.py`。`verify_all_legality.py` 增加
+  final_layout **单射**检查。
+
+**P1 处置**：
+- P1-4：`final_report_bench_v8.py` 不再写分片 `summary.md`（该块是
+  v7 表头 + 分片局部数据，曾与 `summary_v8.md` 混淆）；旧文件已删。
+- P1-2：`aggregate_v8.py` 表头标注乘积代理/大层下溢/基线 SWAP 口径；
+  benchmark 行新增 `qt_twoq_count` / `qt_logf_product` /
+  `qt_logf_time` / `qt_est_time_us`（下次全量重跑生效）。
+- P1-3：`docs/correctness_theorems.md` T4 更正为"v7-pre-linear 全量
+  595 行 + v8 分层抽样 31 条"，不再声称 v8 全量已扫。**v8 全量合法性
+  重扫已启动**（11 分片，输出 `tables/final_report_v8/legality_rows_*`，
+  含布局单射检查），完成后补记。
+- P1-1：delivery README 与 `qtrail/verify/equivalence.py` 文档已明确
+  "`qtrail.verify` 需要 qiskit（实验/验证依赖），映射管线本身零
+  qiskit"，不再与"无需模拟器"表述冲突。
+
+**P2-1/P2-5/P2-6 记录待办**（本轮不改，避免与既有检查点/数字口径
+冲突）：
+- P2-1 紧凑性奖励 padding 未 mask（c0.05 检查点按旧行为训练；修
+  代码需重训或明确版本）；
+- P2-5 torch 合成回退精度 0.99999939（生产默认 vw；守卫会拒绝回退
+  块，语义安全但质量下降）；
+- P2-6 仅 1Q 的逻辑比特位置未进入 VF2++/C1 评分（1Q 误差在 small
+  占比大，属目标错配；joint selection/L3 部分补偿）。
+
+**测试**：修复后全量 **232 passed + 2 已知环境性失败**
+（`test_fit_block_torch_exact` 容差、`test_platform_verifier_needs_key`
+因本机密钥存在反向断言），无新增失败。
+
+**Qiskit 基线双模型重评完成**（10 分片，585/587 行；4 配置 ×
+product/time）：
+- 排名在两种模型下**完全一致**：small/medium/large 均为
+  `aw_o3 > aw_o1 > b_o3 > b_o1`（large 为 `aw_o3 > b_o3 > aw_o1 >
+  b_o1`），感知 O3 仍最优。
+- 中位 log 保真度（product / time）：small aw_o3 −0.1123 / −0.1010；
+  medium −3.5856 / −6.1018；large −44.4357 / −115.3231。time 模型对
+  large 惩罚更重（空闲退相干/读出），但**不改变排名**。
+- 我方 v8 的 time 口径需在下一次全量重跑（新行字段）后对比。

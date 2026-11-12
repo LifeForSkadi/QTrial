@@ -19,10 +19,15 @@ def heuristic_layout(graph: ProgramGraph, spec: DeviceSpec,
     logical_order = np.argsort(fiedler)
 
     path = _device_snake(spec)
+    if n > len(path):
+        raise ValueError(
+            f"circuit uses {n} qubits but device {spec.name} has only "
+            f"{len(path)} usable qubits (disabled "
+            f"{sorted(spec.disabled_qubits)})")
 
     pi = np.zeros(n, dtype=np.int64)
     for k, logical in enumerate(logical_order):
-        pi[logical] = path[k % len(path)]
+        pi[logical] = path[k]
     return pi
 
 
