@@ -119,7 +119,11 @@ def load_final_report():
     必须用定稿表，不能用 jsonl 现场重算。
     """
     out = {}
-    text = open("tables/final_report/report.md", encoding="utf-8").read()
+    # 2026-11-13：优先使用 v8 分层表（y 修复 + mid-circuit 剔除后）；
+    # 不存在时回退 v4 定稿表。
+    v8_report = "tables/final_report_v8/report.md"
+    path = v8_report if Path(v8_report).exists() else "tables/final_report/report.md"
+    text = open(path, encoding="utf-8").read()
     sections = re.split(r"\n## ", text)
     strata_map = {"≤10": "≤10 比特", "11-50": "11-50 比特", "51-105": "51-105 比特"}
     wins = {"感知O3": 0, "pytket": 0, "盲目O1": 0}
