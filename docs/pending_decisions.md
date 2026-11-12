@@ -1173,3 +1173,23 @@ commute】。判据：qv32 1Q ≤17,500（−24%）、depth ≤3700、
 small 1.7-4.0s；medium（heis_N16 9.2s、qft_N020 12.3s、
 cat_state_n22 35.0s）；med-large（QV_n32 46.7s）；large
 （heis_N100 13.1s、qft_50 36.5s、graphstate_50/hwb12 >900s）。
+
+### -5 补充三十九（2026-11-12，hwb12 时间瓶颈定位 + graphstate 双修复）
+
+**graphstate_50（100 门）900s 超时 → 4.4s**（已提交 6ef9fa9）：
+两个超多项式缺陷——①lnn._shortest_paths 对 d≤8 全路径枚举
+（密集图路径数指数级，内存爆 SIGSEGV）→ islice 封顶 32；
+②relabel_vf2._exact_embedding 的 max_active=60 门槛过高
+（50 活跃节点进精确 VF2，首个解的递归搜索指数级，墙钟预算
+在生成器产出解前不生效）→ 门槛降 20、超阈值走有界部分嵌入。
+
+**hwb12（51.4 万门）全管线 ~615s 的阶段分布**（两轮实测一致）：
+布局 29.5s / 路由 40.4s（内核 16 种子 ×2.4s）/ post 1.7s /
+v5 管线 542s——其中 **decompose_v2 不动点 = 509s**（12 轮 ×
+30-60s，每轮十几个 O(m) Python pass 作用于 58 万门）。
+v4 decompose 仅 3.9s、fold_and_relink 12.5s、候选评分 ~16s、
+C1/L3/A2 ~3s。
+
+**消融（scripts/diag_hwb12_rounds.out）**：max_rounds 0/2/4 的
+指标-时间权衡——若低轮数保住大部分收益则巨型线路降轮数（需
+过非劣化守卫与回归组）。

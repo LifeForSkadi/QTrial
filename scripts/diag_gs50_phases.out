@@ -1,0 +1,10 @@
+graphstate_50: n=50 门=100
+[    0.2s] 开始 compute_layout
+[    3.0s] compute_layout 完成
+[    3.0s] 开始 sabre_route
+[    3.1s] sabre_route 完成 swaps=52 门=152
+[    3.1s] 开始 post_route
+[    3.1s] post_route 完成 removed=0 门=152
+[    3.1s] 开始 _v5_pipeline
+[    4.4s] _v5_pipeline 完成 门=926
+[    4.4s] 完成 fid=1.597e-01 depth=275

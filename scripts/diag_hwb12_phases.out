@@ -1,0 +1,10 @@
+hwb12: n=20 门=514412
+[    1.2s] 开始 compute_layout
+[   29.8s] compute_layout 完成
+[   29.8s] 开始 sabre_route
+[   70.2s] sabre_route 完成 swaps=95621 门=579948
+[   70.2s] 开始 post_route
+[   72.1s] post_route 完成 removed=1 门=579619
+[   72.1s] 开始 _v5_pipeline
+[  613.8s] _v5_pipeline 完成 门=2161128
+[  615.8s] 完成 fid=3.360e-322 depth=950104
