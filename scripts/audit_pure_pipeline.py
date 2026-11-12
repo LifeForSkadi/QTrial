@@ -13,6 +13,7 @@
 cz 全部相邻（spec.adj）、无 swap 残留、measure 合法。
 时间成本：全管线墙钟（含 RL 布局/路由/后处理）。
 """
+import os
 import sys
 import time
 from pathlib import Path
@@ -243,7 +244,12 @@ def main():
         torch.manual_seed(42)
         mapper = PureMapper(spec, policy=policy, cfg=cfg, dev=dev, seed=42,
                             selection_rule="fidelity", use_post=True,
-                            pipeline="v5", routing_seeds=16)
+                            pipeline="v5", routing_seeds=16,
+                            # 默认 = 生产路径（linear 分解，2026-11-12
+                            # 起为默认）；QTRAIL_AUDIT_FIXPOINT=1 切
+                            # fixpoint 消融路径
+                            linear_decompose=os.environ.get(
+                                "QTRAIL_AUDIT_FIXPOINT") != "1")
         t0 = time.time()
         res, err = run_with_timeout(
             lambda: mapper.map_circuit(circ, circuit_id=name), 900)
