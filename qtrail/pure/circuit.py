@@ -123,6 +123,13 @@ class Circuit:
 
     def copy(self):
         c = Circuit(self.n, self.name)
-        c.ops = list(self.ops)
-        c.measures = list(self.measures)
+        # 深拷贝 Inst（2026-11-12 审计捕获的 P1 修复）：此前浅拷贝
+        # 共享 Inst 对象——C1/L3 重标记原地改 inst.qubits 时，评分
+        # 管线里存的 routed_pre"副本"被静默污染（qaoa_8 的 swap(79,80)
+        # 变 swap(73,80)、final_layout 却是旧值 → 胜者重跑语义错位、
+        # 态矢量重叠 0.0024）。深拷贝后重标记互不干扰。
+        c.ops = [Inst(i.name, i.qubits, i.params, i.cbits)
+                 for i in self.ops]
+        c.measures = [Inst(m.name, m.qubits, m.params, m.cbits)
+                      for m in self.measures]
         return c
