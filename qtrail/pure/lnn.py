@@ -71,8 +71,16 @@ def _device_graph(spec):
     return g
 
 
-def _shortest_paths(spec, a, b, max_d=8):
-    """设备图上 a→b 的全部最短路径（BFS 枚举，d ≤ max_d 时可行）。"""
+def _shortest_paths(spec, a, b, max_d=8, max_paths: int = 32):
+    """设备图上 a→b 的最短路径采样（噪声感知选路只需少量候选）。
+
+    复杂度缺陷修复（2026-11-12，graphstate_50 900s 超时+段错误的
+    根因）：原实现对 d ≤ max_d 调用 nx.all_shortest_paths 枚举
+    【全部】最短路径——密集设备图上两点间最短路径数随 d 指数级，
+    152 门线路链化即内存爆掉（SIGSEGV）。改为 islice 封顶采样
+    （确定性前缀，O(max_paths·d)）。
+    """
+    from itertools import islice
     import networkx as nx
     g = _device_graph(spec)
     if not nx.has_path(g, a, b):
@@ -80,7 +88,7 @@ def _shortest_paths(spec, a, b, max_d=8):
     d = nx.shortest_path_length(g, a, b)
     if d > max_d:
         return [nx.shortest_path(g, a, b)]  # 长距离只取一条（BFS 路径）
-    return list(nx.all_shortest_paths(g, a, b))
+    return list(islice(nx.all_shortest_paths(g, a, b), max_paths))
 
 
 def noise_aware_chain(spec, a, b):

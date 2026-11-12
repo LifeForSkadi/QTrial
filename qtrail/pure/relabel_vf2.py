@@ -46,7 +46,7 @@ def _interaction_graph(circ: Circuit):
 
 
 def _exact_embedding(circ, spec, time_budget: float = 15.0,
-                     max_active: int = 60):
+                     max_active: int = 20):
     """H 的支撑图嵌入设备图：返回置换 dict {旧位置: 新位置} 或 None。
 
     嵌入语义：把活跃位置（含 2Q 门的位置）重命名到设备节点上，使
