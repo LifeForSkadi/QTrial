@@ -1755,3 +1755,61 @@ CLI 只暴露生产开关。
 (a) 587 全量按新管线（A2=vw、VF2++、Inst/候选类型化）重跑/重评；
 (b) 时间感知模型若作报告默认，需连同基线同口径重算；
 (c) 交付报告书/表格数字同步（V F2++ 后 N25/heis16 等改善未入表）。
+
+### -13 补充五十四（2026-11-13，压缩恢复点：v8 全量重评进行中 + Qiskit 双模型对比计划）
+
+**执行顺序 1–7 项全部完成**（HEAD=e03742d；提交链 f224683→cc4c3a3→
+ba9ee56→52d948a→bbade1c→83835f4→e03742d）。
+
+**进行中：587 全量 v8 重评**（后台任务，2026-11-13）
+- 脚本 `scripts/final_report_bench_v8.py`（v7 同口径；输出改
+  `tables/final_report_v8/`，不覆盖旧表）；14 分片（small 1、medium 6+、
+  large 8），seeds=16、timeout 900s。
+- 截至本记录：small 129/129、large 199/199 已完成；medium ~541/587 总
+  行数（收尾中，剩余慢线可能 900s 超时）。
+- 聚合脚本 `scripts/aggregate_v8.py`：合并分片 → 主行文件 +
+  `tables/final_report_v8/summary_v8.md`（vs v7/v3/感知O3/pytket 表 +
+  相对感知O3、相对v7 的中位比值/胜率）。
+- **当前 product 口径初步对比**（已完成样本）：
+  - vs 报告书主基线 **RL 布局+感知O3**（`tables/compare_models/
+    rl_o3_587_rows.jsonl`，388 行仅小+中）：small 中位 **1.006**、
+    胜率 **55%**（v7=1.003/55%）；medium（部分）中位 **1.395**、
+    胜率 **79%**（v7=1.327/73%）——VF2++/A2-vw 带来的提升。
+  - vs **Qiskit 自带感知O3**（`tables/final_report/aw_o3`，旧表）：
+    small 0.970/13%、medium（部分）0.672/20%——Qiskit 自带噪声感知
+    布局仍然更强；报告书主对比口径是前者（RL+感知O3），如实区分。
+  - large：基线表无 large 行，不可比（同前）。
+
+**已就绪、待 v8 完成后执行：Qiskit 基线双模型重评**（用户要求）
+- 脚本 `scripts/bench_qiskit_baseline_models.py`：对 587 线路重跑
+  qiskit 4 配置（盲目 O1/O3、感知 O1/O3；transpile 配置与
+  `final_report_bench.py` 完全一致），产物转纯 Circuit 后用
+  **product + time 双模型**评分；输出
+  `tables/qiskit_baseline_models/{bucket}_rows[_shardK].jsonl`。
+  已冒烟 1 条（product 与旧表逐值一致；time 已产出）。
+- 计划分片：small 2 / medium 4 / large 4（timeout 900s），完成后与
+  `tables/final_report_v8` 合并做双模型对比表。
+- 注意：默认保真度口径仍是 product（`QTRAIL_FIDELITY_MODEL=time`
+  才切时间模型）；双模型对比会同时报告两者。
+
+**压缩后继续步骤**：
+1. 等 587 v8 全部完成 → 运行 `scripts/aggregate_v8.py` → 记录正式
+   分层数字（更新本恢复点/台账）。
+2. 启动 qiskit 基线 10 分片重评 → 汇总 product/time 双口径对比表；
+   重点看 time 模型下排名是否变化（rz 虚拟门/空闲退相干）。
+3. 用户要求的"报告书全部实验重跑"批次（清单见
+   `delivery/docs/REPRODUCE.md`）：
+   - 587 分层（进行中）+ 图表 5.2/5.3/5.9
+   - 缺陷扫描 defect_sweep.py（图5.4）、跨拓扑 cross_topo_bench.py（图5.5）
+   - 布局归因 bench_layout_contribution.py / bench_layout_inject.py
+     （图5.6/图10）
+   - 运行时间四脚本（图5.7/5.8）+ make_runtime_compare.py
+   - LAUREL 对比 compare_models.py（图5.10；权重未变，仅重评）
+   - 出图 make_report_figures.py + reproduce.py 校验
+   注意：基线列可复用旧表（基线未受管线改动影响）；我方列全部重跑。
+
+**工作区状态**：HEAD=e03742d（第 7 项）；新增未跟踪脚本
+`final_report_bench_v8.py` / `aggregate_v8.py` /
+`bench_qiskit_baseline_models.py` 与输出目录 `tables/final_report_v8/`、
+`tables/qiskit_baseline_models/`；`scripts/retry_timeouts*` 为早前遗留。
+后台任务：587 v8 分片组（harness task id bfunuuv7k）。
