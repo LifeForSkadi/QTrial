@@ -39,7 +39,7 @@ class PureMapper:
                  pipeline: str = "v4", full_eval: bool = True,
                  full_eval_max_n: int = 50, full_eval_topk: int = 6,
                  fold_keep_on: bool = True,
-                 linear_decompose: bool = False):
+                 linear_decompose: bool = True):
         from qtrail.config import Config
         self.spec = spec
         self.policy = policy
@@ -64,7 +64,10 @@ class PureMapper:
         self.full_eval_topk = full_eval_topk
         self.fold_keep_on = fold_keep_on
         # 线性分解开关（2026-11-12 补充四十预注册：qv32 1Q 差距的
-        # 分解架构重排；判据未达标前默认关）
+        # 分解架构重排）。判据已全面达标（补充四十三裁决）：qv32
+        # 1Q 15,260 ≤16,500、depth 3,281 ≤3,600、logf −30.22 优于
+        # qiskit O3（−30.5）、hwb12 墙钟 755s→160s——默认开启；
+        # False 保留为 fixpoint 消融参照
         self.linear_decompose = linear_decompose
         self._full_result = None
         self._rng = np.random.default_rng(seed)
