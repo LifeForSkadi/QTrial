@@ -134,9 +134,11 @@ def main():
         print("  A2 backend  : qiskit Weyl/KAK 闭式分解器（显式启用的对照后端）")
     elif a2_backend == "torch":
         print("  A2 backend  : 自研 torch 合成回退（零 qiskit 依赖）")
-    else:
+    elif a2_backend == "vw":
         print("  A2 backend  : 自研 Weyl/Vatan-Williams 闭式合成"
               "（零 qiskit 依赖）")
+    else:
+        print("  A2 backend  : 未使用（v4 管线或线路无 2Q 块）")
 
 
 if __name__ == "__main__":
