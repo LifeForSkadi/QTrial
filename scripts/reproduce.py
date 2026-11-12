@@ -57,10 +57,10 @@ def main():
     policy = None
     ckpt_path = args.checkpoint
     if ckpt_path is None:
-        from qtrail.config import CHECKPOINTS_DIR
-        cks = sorted(CHECKPOINTS_DIR.glob("tianyan-287_*_best.pt"),
-                     key=lambda p: p.stat().st_mtime, reverse=True)
-        ckpt_path = str(cks[0]) if cks else None
+        # 固定到 587 报告主检查点（2026-11-13）：此前按 mtime 选最新
+        # 权重，会随实验产物变动而不可复现（独立复现校验 P3）。
+        ckpt_path = ("checkpoints/tianyan-287_gat_combined_calib_"
+                     "dep0.1_t0.5_c0.05_best.pt")
     if ckpt_path:
         import torch
         from qtrail.models import QAPolicy
@@ -78,6 +78,14 @@ def main():
         swaps = []
         sabre1 = []
         for seed in range(args.seeds):
+            # 2026-11-13：显式固定全局 RNG，否则同一 checkpoint 两次运行
+            # 可出现 20%+ SWAP 差异（复现校验 P3）。
+            import random
+            random.seed(seed)
+            np.random.seed(seed)
+            if policy is not None:
+                import torch
+                torch.manual_seed(seed)
             mapper = Mapper(spec, policy=policy, cfg=cfg, dev="cpu", seed=seed)
             res = mapper.map_circuit(qc_clean, circuit_id=name)
             swaps.append(res.swap_count)
