@@ -306,10 +306,21 @@ torch 拟合路线可行但慢 1-2 个数量级（300-500 步/块）。
 - 文档口径全部改为"除可选 2Q 合成器外零第三方依赖"。
 
 **后续可做的事**（按性价比排序）：
-1. 从 Vatan-Williams 2004 的公式出发，自研闭式 3-CX 合成器（数学上写得出，
-   工程 1-2 天；可彻底去掉 qiskit 依赖）。
+1. **已完成（2026-11-13，执行顺序第 3 项）**：从 Vatan-Williams 2004 +
+   Drury-Love arXiv:0806.4015 的公开公式出发，自研闭式 3-CX 合成器
+   `qtrail/pure/weyl.py`（Weyl/KAK 分解 + 退化类规范化 + VW 3-CX 电路），
+   运行时零 qiskit 依赖（子进程断言 `qiskit not in sys.modules`）。
+   `synth_block_analytic` 默认后端 = "vw"；qiskit 仅在
+   `QTRAIL_A2_BACKEND=qiskit` 时作对照。
+   **验证**：260 条随机 SU(4) + 8 特殊门重建重叠 > 1−1e-9；
+   生产 A/B（heis16/qft20/N25，RL 策略 + 16 种子，预热 + 双次取最小）：
+   2Q 全同、qft20 1Q 2455 vs 2458、depth 927 vs 932、logf −5.5439 vs
+   −5.5464、N25 logf 差 −0.0081（≤0.01）、墙钟差 ≤1.5%——**达标，vw 默认**。
+   组件耗时 0.31 ms/块（qiskit Rust 0.055 ms/块；绝对成本 24–40 块
+   ≈7–12 ms，管线墙钟在预热口径下无显著差）。
 2. 或者接受混合架构，在论文里明确声明"2Q 块合成复用 qiskit 分解器，其余全自研"，
    并单独量化该组件的贡献（消融：A2 关闭时性能差多少）。
+   ——已被方案 1 取代，保留为历史选项。
 
 ---
 
@@ -458,7 +469,7 @@ torch 拟合路线可行但慢 1-2 个数量级（300-500 步/块）。
 |---|---|---|---|
 | 1 | ✅ 链调度/坐标帧不变式写进定理文档 + property-based 测试（2026-11-13 完成：T5/T6/T7 + tests/test_invariants_property.py，5 项全过 + 变异验证） | 半天 | 把两类 P0 变成"不可能再犯" |
 | 2 | ✅ 生产路径语义回归门禁进 pytest（2026-11-13 完成：tests/test_production_semantics.py，6 语料 × linear/fixpoint × 全候选路径 × 特殊角，24 项全过；门禁当场抓到 fixpoint 路径 h/u2 未翻译的非法门泄漏并修复） | 1 天 | 审查代理抓 bug 的速度 ←→ CI 自动抓 |
-| 3 | 自研闭式 3-CX 合成（Vatan-Williams 公式） | 1-2 天 | 去掉 A2 的 qiskit 依赖，叙事完整 |
+| 3 | ✅ 自研闭式 3-CX 合成（Vatan-Williams 公式）（2026-11-13 完成：qtrail/pure/weyl.py，Drury-Love Weyl + 退化类规范化 + VW 3-CX，零 qiskit 运行时依赖；260 项单元验证 + 生产 A/B 全过，默认后端 vw） | 1-2 天 | 去掉 A2 的 qiskit 依赖，叙事完整 |
 | 4 | 候选状态类型化（CandidateResult + 帧标记 + Inst 冻结） | 2-3 天 | 根治共享可变状态类 bug |
 | 5 | 时间感知保真度模型（门时间 + T1/T2 + rz=0 + swap 折算） | 2-3 天 | 论文级指标可信度；数字会变，相对排序大概率不变 |
 | 6 | **自研 VF2++（方案 B）**（原"分块 VF2"已否决，规格见 vf2_postlayout_explained.md §8.4） | 1 天 | >20 活跃节点的精确嵌入覆盖率（当前按构造 0%） |
@@ -527,7 +538,9 @@ pending_decisions.md + negative_results_ledger.md。
 
 **叙事上的三个必须如实**：
 1. 路由器是 qiskit SabreSwap 的语义复现 + 自研前瞻，不是 LightSABRE。
-2. A2 的 2Q 块合成器默认调用 qiskit（已披露，可自研替换）。
+2. A2 的 2Q 块合成器**已改为自研** Weyl/Vatan-Williams 闭式实现
+   （2026-11-13，默认后端 vw，零 qiskit 运行时依赖）；qiskit 仅在
+   显式 `QTRAIL_A2_BACKEND=qiskit` 时作对照后端。
 3. "587 全样本 fid=1" 不成立——只有抽样验证（已更正）。
 
 **下一步的先后**：不变式文档与测试（便宜且立刻防复发）→ 自研合成器（去依赖）

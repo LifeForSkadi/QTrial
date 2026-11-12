@@ -115,10 +115,9 @@ def main():
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2, ensure_ascii=False, default=float)
 
-    # 后端披露（2026-11-12 学术审查 P1-2 诚实化）：A2 2Q 块合成的
-    # 唯一第三方数值组件 = qiskit 的 Weyl/KAK 闭式分解器（可选，快
-    # 路径）；qiskit 缺失时自研 torch 后端自动回退。除该合成器外
-    # 全部决策逻辑与优化 pass 为自研、零第三方运行时依赖。
+    # 后端披露（2026-11-12 审查 P1-2；2026-11-13 第 3 项后默认全自研）：
+    # A2 2Q 块合成默认走自研 Weyl/Vatan-Williams 闭式实现（weyl.py）；
+    # qiskit 仅在显式 QTRAIL_A2_BACKEND=qiskit 时作为对照后端参与。
     from qtrail.pure import synthesis as _syn
     a2_backend = _syn.A2_BACKEND
     leaked = "qiskit" in sys.modules
@@ -132,11 +131,12 @@ def main():
     print(f"  wall        : {metrics['wall_s']:.2f}s")
     print(f"  outputs     : {qasm_path}, {qcis_path}, {json_path}")
     if a2_backend == "qiskit":
-        print("  A2 backend  : qiskit Weyl/KAK 闭式分解器（可选数值组件；"
-              "其余全部自研，零其它第三方依赖）")
+        print("  A2 backend  : qiskit Weyl/KAK 闭式分解器（显式启用的对照后端）")
+    elif a2_backend == "torch":
+        print("  A2 backend  : 自研 torch 合成回退（零 qiskit 依赖）")
     else:
-        print("  A2 backend  : 自研 torch 合成（零 qiskit 依赖）"
-              if not leaked else "  A2 backend  : 自研（qiskit 未参与）")
+        print("  A2 backend  : 自研 Weyl/Vatan-Williams 闭式合成"
+              "（零 qiskit 依赖）")
 
 
 if __name__ == "__main__":

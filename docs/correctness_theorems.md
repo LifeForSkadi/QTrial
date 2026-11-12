@@ -193,6 +193,15 @@ final_layout 出现重复值 {0:2,1:1,2:2}）由 occupied 全集修复；
 test_relabel_bijection_property（真机拓扑/校准、BFS 连通片、一个
 2Q 孤立位专测 occupied 全集；双射 + 标签域 + 相邻 + 语义 + 单调）。
 
+**组件注记（A2 2Q 块合成，2026-11-13）**：默认后端改为自研
+Weyl/Vatan-Williams 3-CX（`qtrail/pure/weyl.py`）。数学 = KAK 定理
+（Vatan-Williams, PRA 69, 032315；Drury-Love, arXiv:0806.4015 的
+分解算法）+ 每块重建守卫（|⟨U_synth,U⟩|/4 > 1−1e-8，失败回退自研
+torch 路径），故属 T1 的恒等式类组件（B1）；唯一近似来源是 Weyl 腔
+退化类（PartialSWAP/fSim 等）规范化的 1e-9 保真度容差，由守卫把关。
+单元验证：tests/test_weyl_synthesis.py（260 条随机 SU(4) + 特殊门 +
+零 qiskit 子进程断言）。
+
 ## 2. 机制-结构映射（适用域可分析）
 
 每个优化组件的触发条件（类型无关、不含线路特判）与其收益结构

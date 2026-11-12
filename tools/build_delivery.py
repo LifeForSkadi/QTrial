@@ -42,6 +42,7 @@ REQUIRED_SCRIPTS = [
     "ab_linear_semantics.py",
     "ab_router_kernel.py",
     "verify_all_legality.py",
+    "ab_a2_backend.py",
 ]
 
 

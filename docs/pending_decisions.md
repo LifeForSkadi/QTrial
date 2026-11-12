@@ -1551,3 +1551,49 @@ failures（同前：torch 拟合精度、TIANYAN_LOGIN_KEY 环境假设）。
 **下一步**：§5 第 3 项（自研闭式 3-CX 合成 Vatan-Williams，去掉 A2 的
 qiskit 依赖；1-2 天）。预注册判据先行：随机 SU(4) 拟合误差/门数 vs
 现有 A2、qv32/heis16/qft20 数字不劣化、A2_BACKEND 双路径等价。
+
+### -8 补充四十九（2026-11-13，执行顺序第 3 项完成：自研 VW 闭式合成）
+
+**完成内容**：
+1. 新增 `qtrail/pure/weyl.py`（零 qiskit 运行时依赖）：
+   - Drury-Love Weyl/KAK 分解（magic 基 + M2 实对称混合对角化 +
+     Weyl 腔翻转；与 qiskit-terra 0.24.1 Apache-2.0 参考实现的数学
+     结构对齐，独立 numpy 移植）
+   - CX 超控基常数（由本文件 Weyl 分解导出，含 ControlledEquiv 规范化）
+   - Vatan-Williams decomp3 闭式 3-CX 电路（8 个 SU(2) + 3 CX）
+   - Weyl 腔退化类规范化：Id/SWAP/PartialSWAP/PartialSWAPFlip/
+     Controlled/MirrorControlled/fSim(aab,abb,abmb)——**不做规范化
+     时 heis16 1Q 534 vs qiskit 358（+49%），规范化后块级 1Q 956 vs
+     1004（更优）**；特殊角结构是 A2 收益主体
+   - 合成守卫：重建矩阵重叠 > 1-1e-8，失败抛 ValueError 回退 torch
+2. `synthesis.synth_block_analytic` 三后端：默认 vw；显式
+   QTRAIL_A2_BACKEND=qiskit 作对照；torch 为守卫失败回退。SU(4) 结果
+   缓存（精确字节键，物化新 Inst 避免共享可变对象）。
+3. `pure_cli` 披露更新：默认 A2 backend = 自研 Weyl/VW（零 qiskit）。
+4. 测试 `tests/test_weyl_synthesis.py`（4 项）：Weyl 重建 200+8、
+   VW 合成 200+8（≤3 CX）、零 qiskit 子进程、与 qiskit 对照。
+5. A/B 脚本 `scripts/ab_a2_backend.py`（--production：RL 策略 +
+   16 种子；预热 + 每后端双次取最小 + 交替顺序）。
+
+**预注册判据与裁决**（判据见 tests/test_weyl_synthesis.py 文件头）：
+- P1/P2：260 单元重建 >1-1e-9、CX ≤3、门集 {u3,cx} —— 全过
+- P3：子进程 sys.modules 无 qiskit —— 过
+- P4：与 qiskit 对照均重建 >1-1e-9；vw CX ≤ qiskit+1 —— 过
+- 管线 A/B（生产：heis16/qft20/N25）：
+  heis16 全同（1Q 358/2Q 72/depth 147/logf −0.6149；墙钟 8.17 vs 8.31）
+  qft20 vw 略优（1Q 2455 vs 2458、depth 927 vs 932、logf −5.5439 vs
+  −5.5464；墙钟 +1.5%）
+  N25 1Q 782 vs 774（+1.0% ≤2%）、depth 335 vs 334（+0.3%）、
+  logf −1.5188 vs −1.5107（差 −0.0081 ≤0.01）、墙钟 +1.5%
+  **裁决：达标，vw 作默认后端。**
+- 方法学注记：代理口径（无策略/单种子）N25 logf −0.037 的单点偏差
+  在生产配置复测为 −0.008；A/B 必须预热（否则先跑后端承担
+  numba/torch ~1.3s 一次性成本被误判）。
+- 组件成本：0.31 ms/块（qiskit Rust 0.055 ms/块）；24–40 块约
+  7–12 ms，管线墙钟无显著差。
+
+**测试状态**：`python -m pytest tests/ -q` → 193 passed, 2 pre-existing
+failures（同前）。交付包重建待本轮末统一执行。
+
+**下一步**：§5 第 4 项（候选状态类型化：CandidateResult + 帧标记 +
+Inst 冻结，2-3 天）。预注册判据先行。

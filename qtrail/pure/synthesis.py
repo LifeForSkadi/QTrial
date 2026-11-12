@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 """2Q 块重合成（A2 组件，2026-11-09）：Cartan KAK 分解 + 3-CX 合成。
 
-对标 qiskit UnitarySynthesis 的公开数学（Weil 分解 / Vatan-Williams），
+2026-11-13：默认后端改为完全自研的闭式实现（qtrail/pure/weyl.py：
+Drury-Love Weyl 分解 + Vatan-Williams 3-CX，零 qiskit 依赖）；
+qiskit TwoQubitBasisDecomposer 保留为显式可选的对照后端
+（QTRAIL_A2_BACKEND=qiskit），torch 数值拟合为守卫失败时的回退。
+
+对标 qiskit UnitarySynthesis 的公开数学（Weyl 分解 / Vatan-Williams），
 独立实现 + 噪声感知选优（qiskit 的合成是噪声无关的固定分解）。
 
 实现策略（自审计驱动）：
@@ -410,11 +415,13 @@ def fit_block_torch(U, init, steps=300, lr=0.1):
     return tn, ov
 
 
-# A2 合成后端标记（诚实的后端披露，2026-11-12 学术审查 P1-2）：
-# "qiskit" = qiskit TwoQubitBasisDecomposer（Weyl/KAK 闭式解，快路径，
-#   唯一第三方数值组件——全部优化决策/pass 仍为自研）；
-# "torch" = 自研 KAK 初值 + 21 参数拟合（无 qiskit 依赖，慢 1-2 个
-#   数量级，qiskit 缺失时自动回退）。CLI/文档据此如实披露。
+# A2 合成后端标记（诚实的后端披露，2026-11-12 学术审查 P1-2；
+# 2026-11-13 执行顺序第 3 项：默认改自研闭式 VW）：
+# "vw"    = 自研 Weyl/KAK 闭式分解 + Vatan-Williams 3-CX 合成
+#           （qtrail/pure/weyl.py；默认，零 qiskit 依赖）
+# "qiskit" = qiskit TwoQubitBasisDecomposer（仅显式
+#           QTRAIL_A2_BACKEND=qiskit 时启用，作为对照参考）
+# "torch"  = 自研 KAK 初值 + 21 参数拟合（vw 守卫失败时的回退）
 A2_BACKEND = None  # 最近一次合成使用的后端（诊断/披露用）
 
 
@@ -470,22 +477,65 @@ def _synth_block_torch(U, pair):
     return block_params_to_insts(t, pair)
 
 
-def synth_block_analytic(U, pair):
-    """A2 块合成（双后端，2026-11-12 审查 P1-2 诚实化）。
+_VW_CACHE: dict = {}
+_VW_CACHE_MAX = 4096
 
-    默认 qiskit 后端（TwoQubitBasisDecomposer——Weyl/KAK 闭式解，
-    0.9ms/块、自动最小 cx 数 2/3）；qiskit 不可用时回退自研
-    torch 后端（KAK 初值 + 21 参数拟合，慢但无依赖）。
-    输出 {u3, cx} 与 block_params_to_insts 同构（u3/u1/cx），
-    下游 _to_cz_basis/_platformize 直接复用。模板比特 0 → a、
-    比特 1 → b。
+
+def _synth_block_vw(U, pair):
+    """自研闭式后端：Weyl/KAK + Vatan-Williams 3-CX（无第三方依赖）。
+
+    守卫：weyl.synth_insts 重建矩阵重叠 < 1-1e-8 时抛 ValueError，
+    调用方回退 torch 后端（同样是自研路径）。
+
+    确定性缓存（2026-11-13）：Trotter/QAOA 类线路的同对块酉高度
+    重复，按 SU(4) 精确字节缓存 (name, qubits, params) 模板，命中时
+    物化新的 Inst（不复用对象——noise_aware_relabel 会原地改标签）。
     """
+    from qtrail.pure.weyl import synth_insts
+    U = np.asarray(U, dtype=complex)
+    key = U.tobytes()
+    tpl = _VW_CACHE.get(key)
+    if tpl is None:
+        base = synth_insts(U, (0, 1))
+        tpl = tuple((i.name, tuple(int(q) for q in i.qubits),
+                     tuple(float(p) for p in i.params)) for i in base)
+        if len(_VW_CACHE) >= _VW_CACHE_MAX:
+            _VW_CACHE.clear()
+        _VW_CACHE[key] = tpl
+    a, b = int(pair[0]), int(pair[1])
+    return [Inst(name, tuple(a if q == 0 else b for q in qs), ps)
+            for name, qs, ps in tpl]
+
+
+def synth_block_analytic(U, pair):
+    """A2 块合成（三后端，2026-11-13 执行顺序第 3 项）。
+
+    默认 vw = 自研 Weyl/KAK 闭式分解 + Vatan-Williams 3-CX 合成
+    （qtrail/pure/weyl.py，零 qiskit 依赖）。显式
+    QTRAIL_A2_BACKEND=qiskit 时走 qiskit TwoQubitBasisDecomposer
+    （对照参考）；vw 守卫失败时回退自研 torch 拟合后端。
+    输出 {u3, cx} 与 block_params_to_insts 同构（u3/u1/cx），
+    下游 _to_cz_basis/_platformize 直接复用。
+    """
+    import os
     global A2_BACKEND
-    try:
-        out = _synth_block_qiskit(U, pair)
-        A2_BACKEND = "qiskit"
+    backend = os.environ.get("QTRAIL_A2_BACKEND", "vw").strip().lower()
+    if backend == "qiskit":
+        try:
+            out = _synth_block_qiskit(U, pair)
+            A2_BACKEND = "qiskit"
+            return out
+        except ImportError:
+            pass  # qiskit 不可用 → 自研 vw
+    if backend == "torch":
+        out = _synth_block_torch(U, pair)
+        A2_BACKEND = "torch"
         return out
-    except ImportError:
+    try:
+        out = _synth_block_vw(U, pair)
+        A2_BACKEND = "vw"
+        return out
+    except (ValueError, np.linalg.LinAlgError):
         out = _synth_block_torch(U, pair)
         A2_BACKEND = "torch"
         return out
