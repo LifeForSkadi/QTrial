@@ -50,8 +50,8 @@
 {"circuit": "bp_basis_trotter_n4_basis_test_n4_transpiled", "n": 4, "qt_swaps": 0, "qt_depth": 76, "qt_twoq_depth": 23, "qt_fidelity": 0.8048435934982796, "qt_wall": 4.16}
 {"circuit": "bp_basis_trotter_n4_basis_trotter_n4", "n": 4, "qt_swaps": 56, "qt_depth": 925, "qt_twoq_depth": 282, "qt_fidelity": 0.09561245144151659, "qt_wall": 9.07}
 {"circuit": "bp_basis_trotter_n4_basis_trotter_n4_transpiled", "n": 4, "qt_swaps": 0, "qt_depth": 813, "qt_twoq_depth": 233, "qt_fidelity": 0.11778265323016432, "qt_wall": 15.81}
-{"circuit": "bp_bb84_n8_bb84_n8", "n": 8, "qt_swaps": 0, "qt_depth": 3, "qt_twoq_depth": 0, "qt_fidelity": 0.8851371927253517, "qt_wall": 2.69}
-{"circuit": "bp_bb84_n8_bb84_n8_transpiled", "n": 8, "qt_swaps": 0, "qt_depth": 3, "qt_twoq_depth": 0, "qt_fidelity": 0.9060349693978748, "qt_wall": 2.76}
+{"circuit": "bp_bb84_n8_bb84_n8", "n": 8, "qt_error": "unsupported: mid-circuit measure"}
+{"circuit": "bp_bb84_n8_bb84_n8_transpiled", "n": 8, "qt_error": "unsupported: mid-circuit measure"}
 {"circuit": "bp_bell_n4_bell_n4", "n": 4, "qt_swaps": 0, "qt_depth": 16, "qt_twoq_depth": 4, "qt_fidelity": 0.9393435811636943, "qt_wall": 2.57}
 {"circuit": "bp_bell_n4_bell_n4_transpiled", "n": 4, "qt_swaps": 0, "qt_depth": 16, "qt_twoq_depth": 4, "qt_fidelity": 0.9390086497596882, "qt_wall": 2.77}
 {"circuit": "bp_cat_state_n4_cat_state_n4", "n": 4, "qt_swaps": 0, "qt_depth": 11, "qt_twoq_depth": 3, "qt_fidelity": 0.9614027207712489, "qt_wall": 3.37}

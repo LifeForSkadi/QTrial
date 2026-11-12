@@ -1905,8 +1905,12 @@ HEAD 1cf1109 + delivery 快照）。逐项复核结论与处置如下。
   `qt_logf_time` / `qt_est_time_us`（下次全量重跑生效）。
 - P1-3：`docs/correctness_theorems.md` T4 更正为"v7-pre-linear 全量
   595 行 + v8 分层抽样 31 条"，不再声称 v8 全量已扫。**v8 全量合法性
-  重扫已启动**（11 分片，输出 `tables/final_report_v8/legality_rows_*`，
-  含布局单射检查），完成后补记。
+  重扫已完成**（11 分片，输出 `tables/final_report_v8/legality_rows_*`
+  + `legality_summary.md`，含布局单射检查）：可解析 **584/587**，
+  合法 **581**、非法 **0**、超时 **3**（hwb11/hwb12/vqe_n28）。
+  差额 3 条为 mid-circuit measure（bb84×2、seca×1），解析器按 P2-3
+  显式拒绝；它们在 v8 主跑时被静默“测量后移”，结果不可信，已标记
+  `qt_error="unsupported: mid-circuit measure"` 并从统计剔除。
 - P1-1：delivery README 与 `qtrail/verify/equivalence.py` 文档已明确
   "`qtrail.verify` 需要 qiskit（实验/验证依赖），映射管线本身零
   qiskit"，不再与"无需模拟器"表述冲突。
@@ -1933,3 +1937,14 @@ product/time）：
   medium −3.5856 / −6.1018；large −44.4357 / −115.3231。time 模型对
   large 惩罚更重（空闲退相干/读出），但**不改变排名**。
 - 我方 v8 的 time 口径需在下一次全量重跑（新行字段）后对比。
+
+**v8 修正后分层数字（y 修复 + mid-circuit 剔除，product 均值/截尾/中位）**：
+- small：**127 完成 / 2 错误**，fid **0.7324/0.7738/0.8472**；
+  vs RL+感知 O3 **1.007/56%**；vs Qiskit 感知 O3 **0.970/13%**；
+  vs v7 **1.000/58%**。
+- medium：**254 完成 / 5 错误**，**0.1446/0.0958/0.0221**；
+  vs RL+感知 O3 **1.410/76%**；vs aw_o3 **0.724/30%**；
+  vs v7 **1.000/61%**。
+- large：**199 完成 / 0 错误**，**0.0028/0.0000/0.0000**；
+  vs aw_o3 **0.056/19%**；vs v7 **1.017/73%**。
+- 合计 **580 完成 / 7 错误**（4 条超时 + 3 条 mid-circuit）。
