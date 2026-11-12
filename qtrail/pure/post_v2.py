@@ -331,6 +331,141 @@ def merge_u3_runs(out_ops: list) -> int:
     return merged
 
 
+def merge_1q_runs_v2(out_ops: list, slide_rounds: int = 6) -> int:
+    """分解前完整 1Q run 合并 v2（2026-11-12，补充三十七预注册）。
+
+    输入 = _expand_keep_u3 产物（cx→H-CZ-H、swap→3cx 已展开、
+    u3 保持未分解）。机制：
+    1. bubble 滑动全部 1Q 门（u3/u1/rz/sx/x 统一矩阵处理）跨
+       不相交门（定理级：不相交支撑对易）——固定轮数，O(m)
+    2. 同比特相邻 run 矩阵乘 → 单 u3（U(2) 封闭，相位剥离精确，
+       收益检查：分解后门数 < run 长度才替换）
+    调用方随后 u3→rz/sx 分解，【不做跨 cz 通勤】——台账 #18：
+    跨 cz 通勤把 5 门 u3 撕成不可再合并的碎片（sx 被 P7 锁死）。
+
+    复杂度：O(slide_rounds·m) + O(m)，无超多项式项。
+    返回合并的 run 数。
+    """
+    _1Q = ("u3", "u1", "rz", "sx", "x")
+    # 1) 滑动聚拢（只滑过非 1Q 门——异比特 1Q 无需互相穿越）
+    for _ in range(slide_rounds):
+        i = 0
+        n = len(out_ops)
+        while i < n - 1:
+            a, b = out_ops[i], out_ops[i + 1]
+            if a.name in _1Q and b.name not in _1Q and b.nq >= 1 \
+                    and int(a.qubits[0]) not in b.qubits:
+                out_ops[i], out_ops[i + 1] = b, a
+            i += 1
+    # 2) 同比特 run 矩阵乘合并
+    from qtrail.pure.post import _u3_to_rzsx_min as _rzsx_min
+    merged = 0
+    i = 0
+    n = len(out_ops)
+    while i < n:
+        inst = out_ops[i]
+        if inst.name in _1Q:
+            q = inst.qubits[0]
+            j = i
+            U = np.eye(2, dtype=complex)
+            while j < n and out_ops[j].name in _1Q \
+                    and out_ops[j].qubits[0] == q:
+                U = _oneq_matrix(out_ops[j].name, out_ops[j].params) @ U
+                j += 1
+            if j - i > 1:
+                # 全局相位剥离（1Q 门相位 = 全系统全局相位，精确）
+                U = U / np.sqrt(np.linalg.det(U))
+                if abs(np.trace(U)) / 2 > 1 - 1e-9:
+                    del out_ops[i:j]          # 恒等 run 整体删除
+                    n -= (j - i)
+                    merged += 1
+                    continue
+                params = _mat_to_u3_params(U)
+                if len(_rzsx_min(*params)) < (j - i):
+                    out_ops[i] = Inst("u3", (q,), params)
+                    del out_ops[i + 1:j]
+                    n -= (j - i - 1)
+                    merged += 1
+            i += 1
+        else:
+            i += 1
+    return merged
+
+
+def _expand_keep_u3(ops: list, expand_swap: bool = True) -> list:
+    """cx→H-CZ-H、swap→3cx 展开，u3 保持不分解（u3 级合并的前提：
+    分解后 sx 被 cz 锁死 P7，合并窗口永久关闭）。O(m)。"""
+    out = []
+    for inst in ops:
+        if inst.name == "cx":
+            a, b = inst.qubits       # 控制 a、目标 b：H 作用于目标
+            out.append(Inst("rz", (b,), (H_GATE[0],)))
+            out.append(Inst("sx", (b,)))
+            out.append(Inst("rz", (b,), (H_GATE[0],)))
+            out.append(Inst("cz", (a, b)))
+            out.append(Inst("rz", (b,), (H_GATE[0],)))
+            out.append(Inst("sx", (b,)))
+            out.append(Inst("rz", (b,), (H_GATE[0],)))
+        elif inst.name == "swap" and expand_swap:
+            a, b = inst.qubits
+            for ctl, tgt in ((a, b), (b, a), (a, b)):
+                out.append(Inst("rz", (tgt,), (H_GATE[0],)))
+                out.append(Inst("sx", (tgt,)))
+                out.append(Inst("rz", (tgt,), (H_GATE[0],)))
+                out.append(Inst("cz", (ctl, tgt)))
+                out.append(Inst("rz", (tgt,), (H_GATE[0],)))
+                out.append(Inst("sx", (tgt,)))
+                out.append(Inst("rz", (tgt,), (H_GATE[0],)))
+        else:
+            out.append(inst)
+    return out
+
+
+def decompose_1q_v2(ops: list) -> int:
+    """v2 收尾：合并后的 u3 → rz/sx 最优分解 + 段内 rz 合并 +
+    恒等移除。仅段内、无跨 cz 通勤（台账 #18 纪律）。O(m)。
+    返回移除/合并门数。"""
+    from qtrail.pure.post import _u3_to_rzsx_min as _rzsx_min
+    out = []
+    n_removed = 0
+    for inst in ops:
+        if inst.name == "u3":
+            gates = _rzsx_min(*inst.params)
+            for name, params in gates:
+                out.append(Inst(name, inst.qubits, params))
+        else:
+            out.append(inst)
+    ops[:] = out
+    from qtrail.pure.post import merge_adjacent_rz as _mar
+    n_removed += len(ops)
+    _mar_from_ops(ops)
+    n_removed -= len(ops)
+    n_removed += _strip_identity_1q(ops)
+    return n_removed
+
+
+def _mar_from_ops(ops: list) -> int:
+    """merge_adjacent_rz 的 ops 列表版（v2 收尾用，O(n) 单遍）。"""
+    out = []
+    i = 0
+    n = len(ops)
+    merged = 0
+    while i < n:
+        inst = ops[i]
+        if inst.name == "rz" and i + 1 < n \
+                and ops[i + 1].name == "rz" \
+                and ops[i + 1].qubits == inst.qubits:
+            th = (inst.params[0] + ops[i + 1].params[0]) % (2 * math.pi)
+            out.append(Inst("rz", inst.qubits, (th,)))
+            i += 2
+            merged += 1
+        else:
+            out.append(inst)
+            i += 1
+    ops[:] = out
+    return merged
+
+
 def _is_h_block(ops, i):
     q = ops[i].qubits[0]
     return (ops[i].name == "rz" and ops[i + 1].name == "sx"
@@ -1547,6 +1682,7 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
                              cancel_cx: bool = True,
                              fixpoint: bool = True,
                              merge_u3: bool = False,
+                             merge_u3_v2: bool = False,
                              spec=None, resynth_every: int = 0,
                              lock_emissions: bool = False,
                              final_sweep: bool = True,
@@ -1576,6 +1712,17 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
         # 分解前把同比特连续 u3 乘成单 u3——分解后 sx 被 cz 锁死
         # （P7），此窗口是唯一合并点
         merge_u3_runs(work.ops)
+    if merge_u3_v2:
+        # v2（补充三十七预注册）：展开保留 u3 → 全类 1Q 滑动 →
+        # 矩阵级 run 合并 → 分解 + 段内收尾。无跨 cz 通勤
+        # （台账 #18 纪律）——O(m) 预算
+        work2 = Circuit(circ.n, name=circ.name)
+        work2.ops = _expand_keep_u3(work.ops, expand_swap=expand_swap)
+        work2.measures = list(circ.measures)
+        merge_1q_runs_v2(work2.ops)
+        decompose_1q_v2(work2.ops)
+        work2.strip_ids()
+        return work2
     out = _v4_decompose(work, expand_swap=expand_swap)
     if not fixpoint:
         return out
