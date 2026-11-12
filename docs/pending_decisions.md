@@ -1522,3 +1522,32 @@ test_platform_verifier_needs_key 因环境存在 TIANYAN_LOGIN_KEY）——
 
 **下一步**：§5 第 2 项（生产路径语义回归门禁进 pytest：参数化
 linear/fixpoint × 候选路径 × 特殊角模式，1 天）。预注册判据先行。
+
+### -7 补充四十八（2026-11-13，执行顺序第 2 项完成：生产路径语义门禁）
+
+**完成内容**：`tests/test_production_semantics.py`（24 项，26.5s）：
+- 语料 6 条：qft5 / ghz10 / qaoa12 + 3 条合成（rz 特角、H 块/sx 对/
+  cz 对消、可吸收 fold 形态）
+- 架构 2 种：linear（生产默认）/ fixpoint（消融）
+- 路径：`_v5_pipeline` 默认决胜 + 强制 `_select` 逐候选下标
+  （候选数 ≥2；qaoa12 ≥3；synth_fold 必须含 fold 候选）
+- 判据：紧凑空间态矢量（|0⟩/|+⟩/2 随机直积态）worst overlap > 1-1e-8
+  + 合法性（门集 {rz,sx,x,cz}、2Q 相邻、比特合法、无 swap、measure 合法）
+- 实现注记：`_embed` 必须与 `_apply` 的大端位序一致（小端写法只在
+  |0⟩/|+⟩ 对称输入上巧合成立）；固定布局 + relabel_budget=0.5 控制墙钟
+
+**门禁首次运行捕获并修复的真 bug**：
+- `post.decompose_to_platform` 对 Circuit API 直通的 `h` 原样透传——
+  fixpoint 消融路径（linear_decompose=False）会交付非法 h 门
+  （synth_special_rz/fixpoint 复现，物理位 73/81）。
+- `u2` 同类：linear 路径 `_translate_v4` 透传 u2 → `_oneq_matrix`
+  ValueError。修复：post.py 加 h→H 块、u2→u3 特例；post_v2 的
+  `_oneq_matrix` 与 `_translate_v4` 加 u2。qasm 解析器本就把 h/u2
+  归一化为 u3（生产 CLI 不受影响），修复覆盖 Circuit API 直通入口。
+
+**测试状态**：`python -m pytest tests/ -q` → 189 passed, 2 pre-existing
+failures（同前：torch 拟合精度、TIANYAN_LOGIN_KEY 环境假设）。
+
+**下一步**：§5 第 3 项（自研闭式 3-CX 合成 Vatan-Williams，去掉 A2 的
+qiskit 依赖；1-2 天）。预注册判据先行：随机 SU(4) 拟合误差/门数 vs
+现有 A2、qv32/heis16/qft20 数字不劣化、A2_BACKEND 双路径等价。

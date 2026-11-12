@@ -303,7 +303,12 @@ def merge_adjacent_rz(circ: Circuit) -> int:
 def decompose_to_platform(circ: Circuit, expand_swap: bool = True) -> Circuit:
     """分解到平台基 [rz, sx, x, cz]（与 qiskit 支撑版完全同口径）：
     H = RZ(π/2)·SX·RZ(π/2)（qiskit 2.5 实测同款）、u1→RZ、cx→H-CZ-H、
-    swap→3 cx 各自展开。返回新电路（原电路不变）。"""
+    swap→3 cx 各自展开。另接受 h（→H 块）与 u2（→u3 特例）——qasm
+    解析器本会把它们归一化为 u3，此处覆盖 Circuit API 直通入口
+    （2026-11-13 生产语义门禁捕获：fixpoint 消融路径曾把 h 原样交付）。
+    其余 qelib1 标准门（t/s/z/rx/ry/p/cp/...）经 qasm 解析器归一化为
+    u3/u1；Circuit API 直通这些门不在本函数闭包内。
+    返回新电路（原电路不变）。"""
     out = Circuit(circ.n, name=circ.name)
     for inst in circ.ops:
         if inst.name == "cx":
@@ -330,8 +335,20 @@ def decompose_to_platform(circ: Circuit, expand_swap: bool = True) -> Circuit:
             q = inst.qubits[0]
             for name, params in _u3_to_rzsx(*inst.params):
                 out.append(Inst(name, (q,), params))
+        elif inst.name == "u2":
+            q = inst.qubits[0]
+            for name, params in _u3_to_rzsx(math.pi / 2, *inst.params):
+                out.append(Inst(name, (q,), params))
         elif inst.name == "u1":
             out.append(Inst("rz", inst.qubits, (inst.params[0],)))
+        elif inst.name == "h":
+            # Circuit API 直通 h（qasm 解析器已归一化为 u3）——平台基
+            # 闭包修复（2026-11-13 生产语义门禁捕获：fixpoint 消融路径
+            # 会把 h 原样交付，违反门集判据）
+            q = inst.qubits[0]
+            out.append(Inst("rz", (q,), (H_GATE[0],)))
+            out.append(Inst("sx", (q,)))
+            out.append(Inst("rz", (q,), (H_GATE[0],)))
         else:
             out.append(inst)
     for inst in circ.measures:

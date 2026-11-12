@@ -52,6 +52,9 @@ def _oneq_matrix(name: str, params: tuple):
         return np.array([[0.0, 1.0], [1.0, 0.0]])
     if name == "u1":
         return np.diag([1.0, np.exp(1j * params[0])])
+    if name == "u2":
+        # Circuit API 直通 u2（qasm 解析器已归一化为 u3）
+        return _oneq_matrix("u3", (math.pi / 2, params[0], params[1]))
     if name == "u3":
         th, ph, la = params
         c, s = math.cos(th / 2), math.sin(th / 2)
@@ -619,6 +622,10 @@ def _translate_v4(ops: list, expand_swap: bool = True) -> list:
                 out.append(Inst("cz", (a, b)))
         elif inst.name == "u3":
             for g, p in _rzsx_min(*inst.params):
+                out.append(Inst(g, inst.qubits, p))
+        elif inst.name == "u2":
+            for g, p in _rzsx_min(math.pi / 2, inst.params[0],
+                                  inst.params[1]):
                 out.append(Inst(g, inst.qubits, p))
         elif inst.name == "u1":
             out.append(Inst("rz", inst.qubits, inst.params))

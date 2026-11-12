@@ -341,6 +341,11 @@ torch 拟合路线可行但慢 1-2 个数量级（300-500 步/块）。
   随机（稀疏/稠密、1Q-only 前缀）。
 - 管线级验证要覆盖**所有候选胜出路径**（fold_only/fold_keep/fold_relink/
   裸路由），因为候选选择是数据依赖的。
+**落地（2026-11-13）**：`tests/test_invariants_property.py` 覆盖机制触碰
+模式（链阻塞+空依赖、fold 采用/放弃、双射稀疏位），
+`tests/test_production_semantics.py` 覆盖 6 语料 ×{linear,fixpoint}×
+全部候选下标 × 特殊角；门禁首次运行即抓到 fixpoint 路径 h/u2 未翻译的
+非法门泄漏（已修）。
 
 ---
 
@@ -452,7 +457,7 @@ torch 拟合路线可行但慢 1-2 个数量级（300-500 步/块）。
 | 优先级 | 事项 | 工作量 | 收益 |
 |---|---|---|---|
 | 1 | ✅ 链调度/坐标帧不变式写进定理文档 + property-based 测试（2026-11-13 完成：T5/T6/T7 + tests/test_invariants_property.py，5 项全过 + 变异验证） | 半天 | 把两类 P0 变成"不可能再犯" |
-| 2 | 生产路径语义回归门禁进 pytest（参数化：linear/fixpoint × 候选路径 × 特殊角模式） | 1 天 | 审查代理抓 bug 的速度 ←→ CI 自动抓 |
+| 2 | ✅ 生产路径语义回归门禁进 pytest（2026-11-13 完成：tests/test_production_semantics.py，6 语料 × linear/fixpoint × 全候选路径 × 特殊角，24 项全过；门禁当场抓到 fixpoint 路径 h/u2 未翻译的非法门泄漏并修复） | 1 天 | 审查代理抓 bug 的速度 ←→ CI 自动抓 |
 | 3 | 自研闭式 3-CX 合成（Vatan-Williams 公式） | 1-2 天 | 去掉 A2 的 qiskit 依赖，叙事完整 |
 | 4 | 候选状态类型化（CandidateResult + 帧标记 + Inst 冻结） | 2-3 天 | 根治共享可变状态类 bug |
 | 5 | 时间感知保真度模型（门时间 + T1/T2 + rz=0 + swap 折算） | 2-3 天 | 论文级指标可信度；数字会变，相对排序大概率不变 |
