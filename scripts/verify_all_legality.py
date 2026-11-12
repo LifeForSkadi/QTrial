@@ -195,8 +195,8 @@ def main():
                 row["error"] = f"{type(e).__name__}: {str(e)[:80]}"
             with open(out_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
-            flag = "✓" if row.get("legal") else (
-                "✗" + str(row.get("violations", row.get("error"))))
+            flag = "OK" if row.get("legal") else (
+                "FAIL" + str(row.get("violations", row.get("error"))))
             print(f"[{bucket}] {name}: {flag}", flush=True)
 
 
