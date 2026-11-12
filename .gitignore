@@ -62,3 +62,6 @@ tables/qiskit_baseline_models/*_shard*.jsonl
 # ===== Qiskit 基线运行日志 / 一次性修复脚本 =====
 scripts/qiskitlogs/
 scripts/tmp_*.py
+
+# ===== 历史实验归档 =====
+tables/_archive/
