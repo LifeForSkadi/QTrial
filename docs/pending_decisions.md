@@ -1198,3 +1198,32 @@ C1/L3/A2 ~3s。
 vs 目标 17,500），按预注册回退。负结果入台账 #19。三连否证
 统一结论：qv 1Q 差距需分解架构重排（qiskit pass 顺序），非
 局部 pass 可解——另立预注册，不在今晚强行推进。
+
+### -5 补充四十（2026-11-12 晨，压缩恢复点 + 今日攻坚计划）
+
+**git 状态**：HEAD=903aca1（昨晚 6 连提交：ec0a9af 路由内核 →
+1b3c5a0 qv 诊断 → bd7fd70 审查+坐标约定修复 → 6ef9fa9
+graphstate 复杂度修复 → 79e9712 hwb12 瓶颈 → 903aca1 v2 负结果）。
+
+**今日攻坚顺序（用户指令）**：
+1. 【主线】分解架构重排（qv 1Q 差距彻底解法）：qiskit pass
+   顺序 = CommutativeCancellation(cx 层) → Optimize1qGates
+   （u3 级完整 run 合并含 H 块吸收）→ 基翻译 → 最小收尾。
+   预注册判据：qv32 1Q ≤16,500（−28%）、depth ≤3600、
+   合法性+logf 不劣化、heis/qft/hwb12 回归不劣化、O(m) 预算。
+   三连否证结论（#11/#18/#19）：跨 cz rz 通勤与 u3 结构保持
+   在局部 pass 架构不可兼得——必须重排架构而非加 pass。
+2. 【次线】decompose 不动点逐轮 pass numba 化（hwb12 509s，
+   12 轮 × 30-60s 的 O(m) Python pass 于 58 万门）。
+3. 【收尾】机制稳定后全量重测 587（三层可信数字更新）。
+
+**关键纪律（压缩后勿忘）**：
+- 预注册判据 + 台账查核先行；判据不达标即回退（开关默认关）
+- 新机制必须 O(m) 复杂度预算（用户明令）
+- 后台任务输出直写文件（不要接 tail——缓冲吞输出）；
+  faulthandler.dump_traceback_later 抓死循环/爆炸现场；
+  外部 5 分钟心跳监控防静默中断
+- 验证门禁：ab_router_kernel.py 18/18、audit_pure_pipeline.py
+  态矢量+合法性、verify_heisenberg_semantics fid=4.4268e-01
+- qv32 基线数字：1Q=22,944（rz=12,065）/ cz=3,914 / depth=4347
+  / logf −37.7；O3 对照 1Q=16,074 / depth=3415 / logf −30.5
