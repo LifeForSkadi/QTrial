@@ -7,6 +7,7 @@ models（RL 策略，纯 PyTorch）、devices（DeviceSpec）；竞赛评分路�
 """
 from __future__ import annotations
 
+import os
 import time
 
 import numpy as np
@@ -37,7 +38,8 @@ class PureMapper:
                  routing_seeds=1, fidelity_predictor=None,
                  pipeline: str = "v4", full_eval: bool = True,
                  full_eval_max_n: int = 50, full_eval_topk: int = 6,
-                 fold_keep_on: bool = True):
+                 fold_keep_on: bool = True,
+                 linear_decompose: bool = False):
         from qtrail.config import Config
         self.spec = spec
         self.policy = policy
@@ -61,6 +63,9 @@ class PureMapper:
         self.full_eval_max_n = full_eval_max_n
         self.full_eval_topk = full_eval_topk
         self.fold_keep_on = fold_keep_on
+        # 线性分解开关（2026-11-12 补充四十预注册：qv32 1Q 差距的
+        # 分解架构重排；判据未达标前默认关）
+        self.linear_decompose = linear_decompose
         self._full_result = None
         self._rng = np.random.default_rng(seed)
         self._dist_eff_cache = {}
@@ -314,8 +319,17 @@ class PureMapper:
                 routed = collect_resynthesize_2q_blocks_full(routed, self.spec)
             else:
                 routed = collect_resynthesize_2q_blocks(routed, self.spec)
+        # decompose 输入 dump 钩子（A/B 机制实验用：QTRAIL_DUMP_
+        # DECOMPOSE_INPUT 环境变量指向输出 pickle；候选评分循环中
+        # 每候选各写一次、胜者补跑最后写——末次即胜者输入）
+        _dump = os.environ.get("QTRAIL_DUMP_DECOMPOSE_INPUT")
+        if _dump:
+            import pickle
+            with open(_dump, "wb") as _f:
+                pickle.dump(routed, _f)
         final_qc = decompose_to_platform_v2(routed, spec=self.spec,
-                                            resynth_every=1)
+                                            resynth_every=1,
+                                            linear=self.linear_decompose)
         m_v4 = pure_metrics(final_qc_v4, routed_v4.count("swap"),
                             self.spec.calib,
                             predictor=self.fidelity_predictor)

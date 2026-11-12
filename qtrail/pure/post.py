@@ -44,14 +44,26 @@ def _u3_to_rzsx_min(th: float, ph: float, la: float) -> list[tuple]:
     """B8：误差加权 1Q 合成（对标 qiskit euler_one_qubit_decomposer 的
     simplify + 多候选选择；2026-11-12）。
 
-    候选集：ZSXXZ（模板）+ 零角省略变体 + θ≈0 对角特例；
-    选择 = 门数最少（校准为逐比特单一误差率，门数即误差序）。
+    候选集：ZSXXZ（模板）+ 零角省略变体 + θ≈0 对角特例 +
+    θ=π/2 三门族（rz·sx·rz）+ θ=π 两门 x 族；
+    选择 = 门数最少（校准为逐比特单一误差率，门数即误差序），
+    平局优先 sx（天衍物理 1Q 门为 X/2）。
 
     2026-11-13 修复：删除 ZXZXZ 候选——其推导恒等式错误：
     Rz(φ+π)·X·Rz(θ+π)·X = Rz(φ−θ)（X·Rz·X = Rz(−θ)，两个 X 使
     5 门族坍缩为对角）。{rz, x} 基下通用 SU(2) 需要 3 个 X（7 门），
     2 个 X 的 ZXZXZ 族不是通用形式。旧实现靠平局规则（ZSXXZ 含
     sx 优先）从未选中该候选——潜伏语义 bug，未造成实际影响。
+
+    2026-11-12 补充候选族（qv32 1Q 差距定位，diag_feed_b_to_qiskit
+    决定性实验：qiskit 再处理我们的产物仍能压 1,394 门——其 euler
+    多候选含短族，我们缺失）：
+    - θ=π/2 族：u3(π/2,φ,λ) = e^{iγ}·rz(φ+π/2)·sx·rz(λ+3π/2)
+      （解析推导 + 数值验证 50/50；H 特例与 sx 形
+      (φ,λ)=(−π/2,π/2)→sx 单门均被覆盖）
+    - θ=π 族：u3(π,φ,λ) = e^{iγ}·rz(φ−λ−π)·x = e^{iγ'}·x·rz(λ−φ+π)
+      （两变体，解析推导 + 数值验证 50/50；x 特例被覆盖）
+    仅当 θ 精确落在族点上启用（近似容忍 1e-9 同既有特例）。
     """
     def _mod2pi(a):
         return float(a % (2 * math.pi))
@@ -67,6 +79,22 @@ def _u3_to_rzsx_min(th: float, ph: float, la: float) -> list[tuple]:
     # θ≈0 特例（对角）：单 rz
     if abs(math.sin(th / 2)) < 1e-9:
         cands.append([("rz", (_mod2pi(ph + la),))])
+    # θ=π/2 三门族（2026-11-12）：
+    # 矩阵积 rz(φ+π/2)·sx·rz(λ+3π/2) = e^{iγ}u3(π/2,φ,λ)，
+    # 对应门序列 [rz(λ+3π/2), sx, rz(φ+π/2)]（门序 = 矩阵序的反序）
+    if abs(th - math.pi / 2) < 1e-9:
+        c = [("rz", (_mod2pi(la + 3 * math.pi / 2),)), ("sx", ()),
+             ("rz", (_mod2pi(ph + math.pi / 2),))]
+        cands.append(c)
+        cands.append(_strip_zero(c))
+    # θ=π 两门 x 族（2026-11-12，两变体）：
+    # 矩阵积 rz(φ−λ−π)·x = e^{iγ}u3(π,φ,λ) → 序列 [x, rz(φ−λ−π)]；
+    # 矩阵积 x·rz(λ−φ+π) = e^{iγ'}u3(π,φ,λ) → 序列 [rz(λ−φ+π), x]
+    if abs(th - math.pi) < 1e-9:
+        for c in ([("x", ()), ("rz", (_mod2pi(ph - la - math.pi),))],
+                  [("rz", (_mod2pi(la - ph + math.pi),)), ("x", ())]):
+            cands.append(c)
+            cands.append(_strip_zero(c))
     best = min(cands, key=lambda g: (len(g), 1 if any(
         x[0] == "x" for x in g) else 0))
     return best

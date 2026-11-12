@@ -466,6 +466,378 @@ def _mar_from_ops(ops: list) -> int:
     return merged
 
 
+# ------------------------------------------------- 线性分解（补充四十预注册）
+_U3_H = (math.pi / 2, 0.0, math.pi)  # H = u3(π/2, 0, π)（精确，det=−1）
+
+
+def _expand_to_u3cz(ops: list, expand_swap: bool = True) -> list:
+    """cx → u3H·cz·u3H、swap → 3×(cx 展开)，1Q 门（u3/u1/rz/sx/x）
+    原样保留。O(m)。
+
+    关键设计（台账 #19 失败的根因修复）：H 用单 u3(π/2,0,π) 表示
+    （cx = H_b·cz·H_b 精确恒等式，det 相位由 run 合并的全局相位
+    剥离统一处理）——#19 把 H 展开成 rz·sx·rz 3 门后，独立 H 块
+    （3 门 run）不满足收益检查（3 门 ≮ 3）无合并空间；单 u3 表示
+    下 [u3, H] 2 元素 run 合并为 5 门即有收益，H 块吸收在 u3 层
+    完成（P7 的 sx 锁不存在于 u3 层——台账 #11/#18/#19 的锁结构）。
+    """
+    out = []
+    for inst in ops:
+        if inst.name == "cx":
+            a, b = inst.qubits
+            out.append(Inst("u3", (b,), _U3_H))
+            out.append(Inst("cz", (a, b)))
+            out.append(Inst("u3", (b,), _U3_H))
+        elif inst.name == "swap" and expand_swap:
+            a, b = inst.qubits
+            for ctl, tgt in ((a, b), (b, a), (a, b)):
+                out.append(Inst("u3", (tgt,), _U3_H))
+                out.append(Inst("cz", (ctl, tgt)))
+                out.append(Inst("u3", (tgt,), _U3_H))
+        elif inst.name == "h":   # h → 精确 u3 表示（防御：生产输入
+            out.append(Inst("u3", inst.qubits, _U3_H))  # 无 h，语义测试含）
+        else:
+            out.append(inst)
+    return out
+
+
+def _merge_runs_u3cz(ops: list) -> int:
+    """cz 分段内逐比特 1Q run 矩阵乘合并（u3 级，含 H 块吸收）。
+
+    机制（线性语义，单遍无循环）：
+    1. 以 cz（及任何多比特门）为段边界；段内 1Q 门按比特分组
+       （跨比特门张量积结构天然对易，分组重排语义无损——定理级）
+    2. 每比特 run 矩阵乘 U = g_k···g_1；U/√det(U) 全局相位剥离
+       （1Q 恒等的相位 = 全系统全局相位，精确可丢——与
+       merge_1q_runs 同一约定）；恒等 run 整体删除
+    3. 收益检查：合成后门数 < 各门门数和才替换（短 run 不膨胀，
+       qft 教训）——独立 H 块（3 门）保持 rz·sx·rz 形态；
+       合并产物统一输出 u3（对角产物 _mat_to_u3_params 返回
+       θ=0 → 基翻译时收为单 rz）
+    4. 无跨 cz 通勤、无循环——台账 #6/#18 的不动点振荡
+       （rz 穿走 ↔ merge 合成回）机制不存在；跨 cz 移动只允许
+       cz 段内（= 无移动）
+    O(m)。返回合并的 run 数。
+    """
+    from qtrail.pure.post import _u3_to_rzsx_min as _rzsx_min
+
+    def gcount(inst):
+        return len(_rzsx_min(*inst.params)) if inst.name == "u3" else 1
+
+    merged = 0
+    out: list = []
+    i = 0
+    n = len(ops)
+    while i < n:
+        inst = ops[i]
+        if inst.nq == 1:
+            # 收集段：连续 1Q 门（多比特门为边界）
+            seg = []
+            while i < n and ops[i].nq == 1:
+                seg.append(ops[i])
+                i += 1
+            # 按比特分组（保持首现顺序——输出确定性）
+            by_q: dict = {}
+            order: list = []
+            for g in seg:
+                q = g.qubits[0]
+                if q not in by_q:
+                    by_q[q] = [g]
+                    order.append(q)
+                else:
+                    by_q[q].append(g)
+            for q in order:
+                gs = by_q[q]
+                if len(gs) == 1:
+                    out.append(gs[0])
+                    continue
+                U = np.eye(2, dtype=complex)
+                for g in gs:
+                    U = _oneq_matrix(g.name, g.params) @ U
+                U = U / np.sqrt(np.linalg.det(U))
+                if abs(np.trace(U)) / 2 > 1 - 1e-9:
+                    merged += 1          # 恒等 run 整体删除
+                    continue
+                params = _mat_to_u3_params(U)
+                if len(_rzsx_min(*params)) < sum(gcount(g) for g in gs):
+                    out.append(Inst("u3", (q,), params))
+                    merged += 1
+                else:
+                    out.extend(gs)
+        else:
+            out.append(inst)
+            i += 1
+    if merged:
+        ops[:] = out
+    return merged
+
+
+def _u3_level_to_platform(ops: list) -> list:
+    """u3 → _u3_to_rzsx_min（B8 最优分解）、u1 → rz，其余原样。O(m)。"""
+    from qtrail.pure.post import _u3_to_rzsx_min as _rzsx_min
+    out = []
+    for inst in ops:
+        if inst.name == "u3":
+            for g, p in _rzsx_min(*inst.params):
+                out.append(Inst(g, inst.qubits, p))
+        elif inst.name == "u1":
+            out.append(Inst("rz", inst.qubits, inst.params))
+        else:
+            out.append(inst)
+    return out
+
+
+def _translate_v4(ops: list, expand_swap: bool = True) -> list:
+    """v4 同款基翻译（列表版）：cx→rz(π/2)·sx·rz(π/2) H 块 + cz、
+    swap→3cx 展开、u3→B8 最优分解、u1→rz、h→H 块、rz/sx/x 原样。
+    O(m)。"""
+    from qtrail.pure.post import H_GATE as _HG, _u3_to_rzsx_min as _rzsx_min
+    out = []
+    for inst in ops:
+        if inst.name == "cx":
+            a, b = inst.qubits
+            h = (Inst("rz", (b,), (_HG[0],)), Inst("sx", (b,)),
+                 Inst("rz", (b,), (_HG[0],)))
+            out.extend(h)
+            out.append(Inst("cz", (a, b)))
+            out.extend(h)
+        elif inst.name == "swap" and expand_swap:
+            a, b = inst.qubits
+            for ctl, tgt in ((a, b), (b, a), (a, b)):
+                h = (Inst("rz", (tgt,), (_HG[0],)), Inst("sx", (tgt,)),
+                     Inst("rz", (tgt,), (_HG[0],)))
+                out.extend(h)
+                out.append(Inst("cz", (ctl, tgt)))
+                out.extend(h)
+        elif inst.name == "u3":
+            for g, p in _rzsx_min(*inst.params):
+                out.append(Inst(g, inst.qubits, p))
+        elif inst.name == "u1":
+            out.append(Inst("rz", inst.qubits, inst.params))
+        elif inst.name == "h":
+            out.append(Inst("rz", inst.qubits, (_HG[0],)))
+            out.append(Inst("sx", inst.qubits))
+            out.append(Inst("rz", inst.qubits, (_HG[0],)))
+        else:
+            out.append(inst)
+    return out
+
+
+def _merge_runs_cross(ops: list, max_passes: int = 3) -> int:
+    """rz/sx/x 层游程合并 + 对角跨 cz 全深度收集（线性、单调）。
+
+    机制依据（2026-11-12 diag_linear_vs_qiskit 实测解剖）：qiskit
+    O3 后处理在同一输入上的输出结构（sx≈每 H 块 1 个、4.5k 单 rz
+    游程）证明其 Optimize1qGates 语义在翻译后 rz/sx 层运行：
+    ① 逐比特游程收集：cz 只对其自身比特是边界（qiskit
+       CommutationAnalysis 语义——不相交支撑对易，定理级）；
+       游程矩阵乘合并（min 序列严格少于原长才替换）
+    ② 对角累加器（全深度、单遍）：每比特的 rz 可穿过全部 cz
+       （对角×对角对易，定理级）——累加器 A 吸收各游程的前导
+       rz、尾 rz 移交新累加器；H 块 [rz(π/2),sx,rz(π/2)] 的
+       两个 rz 各归一侧链、剩 sx 单门（3→1 门/块）；H 块链的
+       rz 聚成单 rz（8×π/2 ≡ 0 → 恒等直接消失）。
+       逐边界规则版（右穿/左穿/双合并）只兑现 13% 收益——[sx,rz]
+       尾 rz 并入邻 H 块被 4<4 阻塞；累加器版是 qiskit 的
+       collect 语义本身。
+
+    单调性：合并只在严格减门时替换；累加器吸收使每 rz 净 −1 门
+    或不变（rz(α)+rz(β)=rz(α+β) 精确）。无振荡循环（台账 #6/#18
+    的振荡源于非单调的纯移动 pass + 循环回看架构；本 pass 单遍
+    不回看，不动点即终止）。O(max_passes·m)。
+    返回净减门数。
+    """
+    from qtrail.pure.post import _u3_to_rzsx_min as _rzsx_min
+
+    def merge_run(gs):
+        """run 的最少门形态：矩阵乘 → 恒等删除 / min 序列
+        （严格少于原长才替换，否则原样）。"""
+        if len(gs) <= 1:
+            return gs
+        U = np.eye(2, dtype=complex)
+        for g in gs:
+            U = _oneq_matrix(g.name, g.params) @ U
+        U = U / np.sqrt(np.linalg.det(U))
+        if abs(np.trace(U)) / 2 > 1 - 1e-9:
+            return []
+        seq = []
+        for g, p in _rzsx_min(*_mat_to_u3_params(U)):
+            seq.append(Inst(g, gs[0].qubits, p))
+        return seq if len(seq) < len(gs) else gs
+
+    def rz_valid(a):
+        return a is not None and abs(a % (2 * math.pi)) > 1e-9
+
+    total = 0
+    for _pass in range(max_passes):
+        # ---- 逐比特序列化：seq[q] = [(run, 边界序号, 是否 cz 边界)]
+        #      cz 只关闭自身比特的 pending（不相交比特滑过——游程
+        #      跨 cz 延长）；非 cz 多比特门 = 全员硬边界
+        seq: dict = {}
+        pending: dict = {}
+        k = 0
+        for inst in ops:
+            if inst.nq == 2:
+                if inst.name == "cz":
+                    for q in inst.qubits:
+                        if q in pending:
+                            seq.setdefault(q, []).append(
+                                (pending.pop(q), k, True))
+                else:
+                    for q in list(pending):
+                        seq.setdefault(q, []).append(
+                            (pending.pop(q), k, False))
+                k += 1
+            else:
+                pending.setdefault(int(inst.qubits[0]), []).append(inst)
+        for q, gs in pending.items():
+            seq.setdefault(q, []).append((gs, k, False))
+        # ---- 每比特：段内合并 + Z 剥离 + 对角累加收集（全深度单遍；
+        #      非 cz 硬边界不可穿——A 必须在硬边界前 flush、
+        #      尾 rz 不剥）
+        before = sum(len(r) for s in seq.values() for r, _b, _c in s)
+        for q, s in seq.items():
+            new_s = []
+            A = None
+            prev_c, prev_b = True, None
+            for run, b, c in s:
+                # 段内合并
+                if len(run) > 1:
+                    run = merge_run(run)
+                if not run:
+                    prev_c, prev_b = c, b
+                    continue
+                # 硬边界前 flush（A 不得穿非 cz 门）
+                if not prev_c and rz_valid(A):
+                    new_s.append(([Inst("rz", (q,), (A % (2 * math.pi),))],
+                                  prev_b, False))
+                    A = None
+                # Z 剥离（qiskit CommutativeCancellation 的 Z 类语义）：
+                # rz(π) 与 cz 精确对易、与 sx/x 对易（模全局相位
+                # Z·sx = −sx·Z，−1 = 全系统全局相位可丢）——游程中间
+                # 的 rz(π) 全部抽出进累加器（[sx,rz(π),sx] →
+                # [sx,sx]→x + Z；Z 对互相抵消）
+                stripped = [g for g in run
+                            if not (g.name == "rz"
+                                    and abs((g.params[0] - math.pi)
+                                            % (2 * math.pi)) < 1e-9)]
+                if len(stripped) != len(run):
+                    for _ in range(len(run) - len(stripped)):
+                        A = math.pi if A is None else \
+                            (A + math.pi) % (2 * math.pi)
+                    run = stripped
+                    if len(run) > 1:
+                        run = merge_run(run)
+                    if not run:
+                        prev_c, prev_b = c, b
+                        continue
+                if len(run) == 1 and run[0].name == "rz":
+                    # 全对角（单 rz）：进累加器（rz 跨 cz 精确对易）；
+                    # 后随硬边界则立即落地
+                    A = run[0].params[0] if A is None else \
+                        (A + run[0].params[0]) % (2 * math.pi)
+                    if not c:
+                        if rz_valid(A):
+                            new_s.append(([Inst("rz", (q,),
+                                                (A % (2 * math.pi),))],
+                                          b, c))
+                        A = None
+                else:
+                    # 剥前导 rz → A
+                    if run[0].name == "rz":
+                        A = run[0].params[0] if A is None else \
+                            (A + run[0].params[0]) % (2 * math.pi)
+                        run = run[1:]
+                    # 剥尾 rz → 新累加器（后随硬边界不剥）
+                    A_next = None
+                    if c and run and run[-1].name == "rz":
+                        A_next = run[-1].params[0]
+                        run = run[:-1]
+                    # flush A（置于本 run 边界前）+ run 主体
+                    if rz_valid(A):
+                        new_s.append(([Inst("rz", (q,),
+                                            (A % (2 * math.pi),))], b, c))
+                    if run:
+                        new_s.append((run, b, c))
+                    A = A_next
+                prev_c, prev_b = c, b
+            if rz_valid(A):
+                new_s.append(([Inst("rz", (q,), (A % (2 * math.pi),))],
+                              k, False))
+            seq[q] = new_s
+        after = sum(len(r) for s in seq.values() for r, _b, _c in s)
+        if after >= before:
+            break
+        # ---- 重建 ops：游程按边界序号归位（同一边界各比特游程的
+        #      发射序 = 首现序——跨比特 1Q 门张量积结构对易，
+        #      任意确定序语义等价）
+        by_cz: dict = {}
+        for q, s in seq.items():
+            for run, b, _c in s:
+                if run:
+                    by_cz.setdefault(b, []).extend(run)
+        new_ops = []
+        k = 0
+        for inst in ops:
+            if inst.nq == 2:
+                new_ops.extend(by_cz.pop(k, []))
+                new_ops.append(inst)
+                k += 1
+        new_ops.extend(by_cz.pop(k, []))
+        total += len(ops) - len(new_ops)
+        ops[:] = new_ops
+    return total
+
+
+def decompose_linear(circ: Circuit, expand_swap: bool = True,
+                     cancel_cx: bool = True, spec=None,
+                     a2_rounds: int = 2) -> Circuit:
+    """线性分解（2026-11-12 补充四十预注册：qiskit pass 顺序架构）。
+
+    阶段（全部 O(m)·固定轮数·严格增益，无不动点循环）：
+    1. CommutativeCancellation(cx 层)：A3 窗口通勤对消
+    2. 基翻译（v4 同款：cx→H-CZ-H、swap→3cx、u3→ZSXXZ、u1→rz）
+    3. Optimize1qGates 语义（_merge_runs_cross）：段内矩阵乘合并 +
+       边界 rz 跨 cz 对角通行（含 H 块 3→1 门剥壳）——实测解剖
+       （diag_linear_vs_qiskit）证明 qiskit 该机制在翻译后层运行，
+       非 u3 层（第一版 u3 级段内合并三条全败、+16%）
+    4. A2 块重合成（固定 a2_rounds 轮）：sx 对合并 + x 穿 cz +
+       cz 聚拢（qiskit O1 同款单调机制）→ A2 解析合成 → 再翻译
+       + 再合并
+    5. 最小收尾：x 穿 cz + cz 全局对消 + 相邻 rz 合并 + 恒等移除
+       ——无跨 cz rz 通勤循环（#6 振荡机制不存在：本路径所有操作
+       严格增益或不动，单遍不回看）
+
+    预注册判据（pending_decisions 补充四十）：qv32 1Q ≤16,500、
+    depth ≤3600、合法性+logf 不劣化、heis/qft/hwb12 回归不劣化、
+    O(m) 预算。不达标即回退（linear=False 默认关）。
+    """
+    work = Circuit(circ.n, name=circ.name)
+    work.ops = list(circ.ops)
+    work.measures = list(circ.measures)
+    if cancel_cx:
+        commute_cancel_cx(work.ops)
+    ops = _translate_v4(work.ops, expand_swap=expand_swap)
+    _merge_runs_cross(ops)
+    for _ in range(a2_rounds if spec is not None else 0):
+        _merge_sx_pairs(ops)
+        slide_x_through_cz(ops, max_rounds=12)
+        _cluster_cz_segments(ops)
+        c = Circuit(circ.n, name=circ.name)
+        c.ops = ops
+        c.measures = work.measures
+        c = collect_resynthesize_2q_blocks(c, spec, max_blocks=60)
+        ops = _translate_v4(c.ops, expand_swap=False)
+        _merge_runs_cross(ops)
+    slide_x_through_cz(ops, max_rounds=12)
+    _cancel_cz_global(ops)
+    _mar_from_ops(ops)
+    _strip_identity_1q(ops)
+    work.ops = ops
+    work._deps = None
+    return work
+
+
 def _is_h_block(ops, i):
     q = ops[i].qubits[0]
     return (ops[i].name == "rz" and ops[i + 1].name == "sx"
@@ -1690,7 +2062,8 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
                              final_min_gate: int = 5,
                              final_gate_guard: bool = False,
                              max_rounds: int = 12,
-                             h_first: bool = False) -> Circuit:
+                             h_first: bool = False,
+                             linear: bool = False) -> Circuit:
     """v5 平台基分解：v4 分解（cx→H-CZ-H、swap→3cx、u3→rzsx）+ 1Q 优化
     不动点循环（对标 qiskit Optimize1qGates + 交换消除）。
 
@@ -1698,7 +2071,15 @@ def decompose_to_platform_v2(circ: Circuit, expand_swap: bool = True,
     通勤对消（A3，对标 qiskit CommutativeCancellation）+ 分解后 1Q
     优化不动点（B 组件）——均语义等价、门数减少。
     cancel_cx/fixpoint 为消融开关（默认开启）。
+
+    linear=True（2026-11-12 补充四十预注册）：走 decompose_linear
+    线性架构（qiskit pass 顺序：cx 通勤对消 → u3 级 run 合并含
+    H 块吸收 → 基翻译 → 固定轮数 A2 → 最小收尾，无不动点循环）。
+    与 fixpoint 路径互斥（其余 fixpoint 参数忽略）。
     """
+    if linear:
+        return decompose_linear(circ, expand_swap=expand_swap,
+                                cancel_cx=cancel_cx, spec=spec)
     from qtrail.pure.post import decompose_to_platform as _v4_decompose
     # A3：cx 通勤对消（对标 qiskit CommutativeCancellation）——在副本上
     # 运行，不动调用方线路（fold/链化后同一路径边上的相邻 cx 成对出现）
