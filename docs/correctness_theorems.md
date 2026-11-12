@@ -170,6 +170,11 @@ mapper.py（L296-307）。
 test_fold_coordinate_frame_property（合成可吸收形态：帧恒等式 +
 链化合法）、::test_fold_abandon_no_side_effects（真实 routed 产物
 放弃路径：返回本体、零修改）。
+**类型化（2026-11-13 第 4 项）**：`CandidateResult`（candidates.py）
+把帧写进构造契约——content 帧强制 input_layout == final_layout，
+physical 帧允许初始布局 ≠ 最终布局；Inst 冻结后所有标签变换必须
+replace 生成新对象。测试：tests/test_candidate_frame.py
+（帧契约/布局复制/Inst 不可变/管线候选集成）。
 
 ### T7 重标记双射（C1：noise_aware_relabel，2026-11-13）
 

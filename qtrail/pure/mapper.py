@@ -17,6 +17,7 @@ import time
 
 import numpy as np
 
+from qtrail.pure.candidates import CandidateResult
 from qtrail.pure.circuit import Circuit
 from qtrail.pure.metrics import compute_metrics as pure_metrics
 from qtrail.pure.post import decompose_to_platform, post_route
@@ -267,8 +268,11 @@ class PureMapper:
         final_qc_v4 = decompose_to_platform(routed_v4)
 
         # ---- 三候选后处理路径，代理评分按决胜规则选优（2026-11-12：
-        # 重标记/折叠结果劣于裸路由时必须回退——gf2^7/dt_100 实测教训）
-        cands = []
+        # 重标记/折叠结果劣于裸路由时必须回退——gf2^7/dt_100 实测教训）。
+        # 2026-11-13 第 4 项：候选状态类型化——帧标记进构造契约，见
+        # candidates.CandidateResult（content 帧强制 input_layout ==
+        # final_layout，physical 帧允许初始布局 ≠ 最终布局）。
+        cands: list[CandidateResult] = []
         # 候选 1：全局重标记路径（fold_only 坐标折叠 → 固定嵌入置换
         # → 全量链化）。门数上限防护（2026-11-12）：hwb12+ 类巨型
         # 线路链化会爆炸（hwb10 已 9 万门），交给老折叠路径。
@@ -285,50 +289,45 @@ class PureMapper:
                 for k, v in final_layout.items():
                     fla[k] = int(mapping.get(
                         int(arr_only[int(v)]), int(arr_only[int(v)])))
-                lay_a = None
-                if layout is not None:
-                    # fold 类产物输入在最终坐标（swap 吸收进重标记，
-                    # 产物 = 最终坐标视图）——输入约定 = 候选的
-                    # final_layout 本身（2026-11-12 审查实测：dj_8
-                    # 交付线路输入约定 = final_layout）
-                    lay_a = dict(fla)
-                cands.append((ra, fla, lay_a))
+                # fold 类产物输入在最终坐标（swap 吸收进重标记，
+                # 产物 = 最终坐标视图）——输入约定 = 候选 final_layout
+                cands.append(CandidateResult(
+                    ra, "content", fla, dict(fla), tag="fold_only_relabel"))
         # 候选 2：老折叠路径（逐 swap 判定 + 链化）
         folded, fold_arr = fold_and_relink(routed, self.spec)
         if fold_arr is not None:
             flb = dict(final_layout)
             for k, v in flb.items():
                 flb[k] = int(fold_arr[int(v)])
-            lay_b = None
-            if layout is not None:
-                # fold 类产物输入在最终坐标——输入约定 = flb 本身
-                # （2026-11-12 审查实测）
-                lay_b = dict(flb)
-            cands.append((folded, flb, lay_b))
+            cands.append(CandidateResult(
+                folded, "content", flb, dict(flb), tag="fold_relink"))
         # 候选 2b（2026-11-13）：post_route 前 fold_keep 产物
         # （审查代理 P0 修复版——最终坐标重标记，非空验 fid=1.0）。
-        # 输入约定 = 最终坐标本身：fold_keep 把每门重标记到
-        # fl[content[p]]，逻辑 i 的首个门落在 final_layout[i]——
-        # 输入嵌入即 final_layout（2026-11-12 审查从实现推导）
+        # 输入约定 = 最终坐标本身（fold_keep 把每门重标记到
+        # fl[content[p]]，逻辑 i 的首个门落在 final_layout[i]）
         if pre_folded is not None:
-            cands.append(pre_folded
-                         + (dict(pre_folded[1]),))
-        # 候选 3：裸路由（v4 行为，永远合法）
-        cands.append((routed.copy(), dict(final_layout),
-                      dict(layout) if layout is not None else None))
+            pk_c, pk_fin = pre_folded[0], pre_folded[1]
+            cands.append(CandidateResult(
+                pk_c, "content", pk_fin, dict(pk_fin), tag="fold_keep"))
+        # 候选 3：裸路由（v4 行为，永远合法；物理帧）
+        cands.append(CandidateResult(
+            routed.copy(), "physical", dict(final_layout),
+            dict(layout) if layout is not None else None, tag="bare"))
         # 代理评分选优（分解后指标 + 决胜规则）
         scored = []
-        for c0, c1, c2 in cands:
-            q = decompose_to_platform(c0)
-            m = pure_metrics(q, c0.count("swap"), self.spec.calib,
+        for cand in cands:
+            q = decompose_to_platform(cand.circuit)
+            m = pure_metrics(q, cand.circuit.count("swap"),
+                             self.spec.calib,
                              predictor=self.fidelity_predictor)
             scored.append((m["swap_count"], m["depth"],
-                           m["log_est_fidelity"], (c0, c1, c2)))
+                           m["log_est_fidelity"], cand))
         chosen = self._select(scored)[0]
-        routed, final_layout = chosen[0], dict(chosen[1])
-        if layout is not None and chosen[2] is not None:
+        routed = chosen.circuit
+        final_layout = dict(chosen.final_layout)
+        if layout is not None and chosen.input_layout is not None:
             layout.clear()
-            layout.update(chosen[2])
+            layout.update(chosen.input_layout)
         noise_aware_relabel(routed, self.spec, final_layout, layout=layout)
         if with_learned and self.policy is not None:
             learned_relabel(self.policy, self.spec, routed, final_layout,

@@ -8,12 +8,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(frozen=True)
 class Inst:
+    """不可变指令（2026-11-13 执行顺序第 4 项：Inst 冻结）。
+
+    历史上 Inst 是可变对象，C1/L3 重标记原地改 qubits；共享 Inst 的
+    浅拷贝副本会被静默污染（qaoa_8 审计 P1）。冻结后所有"修改"必须
+    dataclasses.replace 产生新对象——共享安全由类型系统保证。
+    """
     name: str                 # cx/cz/u3/u1/swap/id/barrier/measure
     qubits: tuple             # (q0,) 或 (q0, q1)
     params: tuple = ()        # u3(θ,φ,λ) / u1(λ)
     cbits: tuple = ()         # measure 目标经典比特
+    tu_locked: bool = False   # Tuccil 冻结段标记（块收集跳过）
 
     @property
     def nq(self):
@@ -123,13 +130,10 @@ class Circuit:
 
     def copy(self):
         c = Circuit(self.n, self.name)
-        # 深拷贝 Inst（2026-11-12 审计捕获的 P1 修复）：此前浅拷贝
-        # 共享 Inst 对象——C1/L3 重标记原地改 inst.qubits 时，评分
-        # 管线里存的 routed_pre"副本"被静默污染（qaoa_8 的 swap(79,80)
-        # 变 swap(73,80)、final_layout 却是旧值 → 胜者重跑语义错位、
-        # 态矢量重叠 0.0024）。深拷贝后重标记互不干扰。
-        c.ops = [Inst(i.name, i.qubits, i.params, i.cbits)
-                 for i in self.ops]
-        c.measures = [Inst(m.name, m.qubits, m.params, m.cbits)
-                      for m in self.measures]
+        # Inst 冻结后（2026-11-13）共享对象安全：列表浅拷贝即可。
+        # 历史：2026-11-12 审计捕获浅拷贝 + 原地改 qubits 的候选污染
+        # （qaoa_8 态矢量重叠 0.0024）——该 bug 类型已被 Inst 冻结
+        # 从根上消除，无需逐指令复制。
+        c.ops = list(self.ops)
+        c.measures = list(self.measures)
         return c

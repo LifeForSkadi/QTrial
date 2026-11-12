@@ -212,9 +212,14 @@ if len(ops[k].qubits) == 1 and deps[k] <= chain_set:
   给出 fold 类候选的命题（U_F = P_arr·U_R；arr=None ⇒ 返回本体且零
   修改；"保留 swap"形态不存在）与结构采用条件；property 测试
   `test_fold_coordinate_frame_property` / `test_fold_abandon_no_side_effects`
-  锁定两类形态。类型化（下面的 CandidateResult）仍是执行顺序第 4 项。
-- 给候选结果定义类型：`CandidateResult(circuit, frame, output_layout, metrics)`，
-  `frame` ∈ {physical, content}，消费方按 frame 决定如何解释标签。
+  锁定两类形态。
+- **已类型化（2026-11-13 第 4 项）**：`qtrail/pure/candidates.py::
+  CandidateResult(circuit, frame, final_layout, input_layout, tag)`——
+  frame ∈ {physical, content}；content 帧在构造时强制
+  `input_layout == final_layout`（帧混用 P0 的防复发），physical 帧
+  允许初始布局 ≠ 最终布局；布局字典构造时复制（防别名污染）。
+  `_v5_pipeline` 的四类候选全部经该类型；测试
+  `tests/test_candidate_frame.py`。
 - 或者统一约定：**所有候选输出都用物理坐标**（内容坐标仅作为内部实现细节）——
   这样折叠候选必须在输出前把内容坐标映射回物理坐标（多一次 O(m) 重标记，但
   消除了整类混杂 bug）。
@@ -470,7 +475,7 @@ torch 拟合路线可行但慢 1-2 个数量级（300-500 步/块）。
 | 1 | ✅ 链调度/坐标帧不变式写进定理文档 + property-based 测试（2026-11-13 完成：T5/T6/T7 + tests/test_invariants_property.py，5 项全过 + 变异验证） | 半天 | 把两类 P0 变成"不可能再犯" |
 | 2 | ✅ 生产路径语义回归门禁进 pytest（2026-11-13 完成：tests/test_production_semantics.py，6 语料 × linear/fixpoint × 全候选路径 × 特殊角，24 项全过；门禁当场抓到 fixpoint 路径 h/u2 未翻译的非法门泄漏并修复） | 1 天 | 审查代理抓 bug 的速度 ←→ CI 自动抓 |
 | 3 | ✅ 自研闭式 3-CX 合成（Vatan-Williams 公式）（2026-11-13 完成：qtrail/pure/weyl.py，Drury-Love Weyl + 退化类规范化 + VW 3-CX，零 qiskit 运行时依赖；260 项单元验证 + 生产 A/B 全过，默认后端 vw） | 1-2 天 | 去掉 A2 的 qiskit 依赖，叙事完整 |
-| 4 | 候选状态类型化（CandidateResult + 帧标记 + Inst 冻结） | 2-3 天 | 根治共享可变状态类 bug |
+| 4 | ✅ 候选状态类型化（CandidateResult + 帧标记 + Inst 冻结）（2026-11-13 完成：qtrail/pure/candidates.py + Inst(frozen=True) + tests/test_candidate_frame.py；黄金门流重构前后逐门一致） | 2-3 天 | 根治共享可变状态类 bug |
 | 5 | 时间感知保真度模型（门时间 + T1/T2 + rz=0 + swap 折算） | 2-3 天 | 论文级指标可信度；数字会变，相对排序大概率不变 |
 | 6 | **自研 VF2++（方案 B）**（原"分块 VF2"已否决，规格见 vf2_postlayout_explained.md §8.4） | 1 天 | >20 活跃节点的精确嵌入覆盖率（当前按构造 0%） |
 | 7 | 开关收敛/死代码清理（15 参数 → 3 参数） | 1 天 | 可维护性 |
@@ -531,8 +536,8 @@ pending_decisions.md + negative_results_ledger.md。
 1. **调度语义无形式化**（链归属 bug 的根源）——不是数学难，而是没写下来。
    **已补（2026-11-13）**：T5 + property 测试，P0 形态已有回归门禁。
 2. **坐标帧约定靠注释**（fold bug 的根源）——架构级契约没有类型系统或文档保证。
-   **文档层已补（2026-11-13）**：T6；类型化（CandidateResult/Inst 冻结）
-   仍在执行顺序第 4 项。
+   **已完成（2026-11-13）**：T6 + `CandidateResult` 帧标记（content 帧
+   构造时强制 input_layout==final_layout）+ Inst 冻结；黄金门流不变。
 3. **保真度模型是代理指标**（下溢/无物理时间/rz 计误差）——相对比较有效，
    绝对声称要谨慎。
 

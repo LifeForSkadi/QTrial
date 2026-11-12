@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 
@@ -1409,8 +1410,9 @@ def collect_resynthesize_2q_blocks(circ: Circuit, spec,
                 continue
         ops[start:end] = new_insts
         if lock_emissions and tu_ok:
-            for _inst in new_insts:
-                _inst.tu_locked = True
+            # Inst 冻结：replace 生成带标记的新对象（2026-11-13 第 4 项）
+            for k in range(start, start + len(new_insts)):
+                ops[k] = replace(ops[k], tu_locked=True)
     circ._deps = None
     return circ
 
@@ -1555,14 +1557,18 @@ def noise_aware_relabel(circ: Circuit, spec, final_layout: dict,
                     best = (c_new, p_new)
             if best is not None:
                 p_new = best[1]
-                for inst in ops:
-                    inst.qubits = tuple(p_new if int(x) == p else int(x)
-                                        for x in inst.qubits)
+                # Inst 冻结（2026-11-13 第 4 项）：replace 生成新对象；
+                # 未触碰的门保持原对象（共享安全）。
+                for i, inst in enumerate(ops):
+                    new_qs = tuple(p_new if int(x) == p else int(x)
+                                   for x in inst.qubits)
+                    if new_qs != inst.qubits:
+                        ops[i] = replace(inst, qubits=new_qs)
                 # 审查 P1-1 修复（2026-11-13）：measure 随标签置换
                 # 同步（此前只动 ops 与 final_layout，读回错位）
-                for m in circ.measures:
+                for mi, m in enumerate(circ.measures):
                     if int(m.qubits[0]) == p:
-                        m.qubits = (p_new,)
+                        circ.measures[mi] = replace(m, qubits=(p_new,))
                 # final_layout 数值与线路标签同步
                 for k, v in final_layout.items():
                     if v == p:
@@ -1641,14 +1647,16 @@ def learned_relabel(policy, spec, circ: Circuit, final_layout: dict,
 
     def apply_pi(pi):
         moved = 0
-        for inst in circ.ops:
+        # Inst 冻结：replace 生成新对象（2026-11-13 第 4 项）
+        for i, inst in enumerate(circ.ops):
             new_qs = tuple(int(pi[int(q)]) for q in inst.qubits)
             if new_qs != inst.qubits:
                 moved += 1
-            inst.qubits = new_qs
+                circ.ops[i] = replace(inst, qubits=new_qs)
         # 审查 P1-1 修复（2026-11-13）：measure 随标签置换同步
-        for m in circ.measures:
-            m.qubits = (int(pi[int(m.qubits[0])]),)
+        for mi, m in enumerate(circ.measures):
+            circ.measures[mi] = replace(
+                m, qubits=(int(pi[int(m.qubits[0])]),))
         for k, v in final_layout.items():
             final_layout[k] = int(pi[int(v)])
         if layout is not None:

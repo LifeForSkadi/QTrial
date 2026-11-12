@@ -15,6 +15,7 @@ A2 块合成在 post_v2/synthesis，见其后端披露）。
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from qtrail.pure.circuit import Circuit, Inst
 
@@ -217,12 +218,13 @@ def absorb_trailing(circ: Circuit, final_layout: dict) -> int:
             elif phys == b:
                 final_layout[logical] = a
         # 审查 P1-1 修复（2026-11-13）：被吸收 swap 交换了 a/b 的
-        # 内容——物理标签上的 measure 必须同步跟随，否则读回错位
-        for m in circ.measures:
+        # 内容——物理标签上的 measure 必须同步跟随，否则读回错位。
+        # Inst 冻结后以 replace 生成新对象（2026-11-13 第 4 项）。
+        for mi, m in enumerate(circ.measures):
             if int(m.qubits[0]) == a:
-                m.qubits = (b,)
+                circ.measures[mi] = replace(m, qubits=(b,))
             elif int(m.qubits[0]) == b:
-                m.qubits = (a,)
+                circ.measures[mi] = replace(m, qubits=(a,))
     circ._deps = None
     return absorbed
 

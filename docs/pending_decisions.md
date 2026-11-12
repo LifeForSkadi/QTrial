@@ -1597,3 +1597,36 @@ failures（同前）。交付包重建待本轮末统一执行。
 
 **下一步**：§5 第 4 项（候选状态类型化：CandidateResult + 帧标记 +
 Inst 冻结，2-3 天）。预注册判据先行。
+
+### -9 补充五十（2026-11-13，执行顺序第 4 项完成：候选类型化 + Inst 冻结）
+
+**完成内容**：
+1. 新增 `qtrail/pure/candidates.py::CandidateResult`（frozen dataclass）：
+   - frame ∈ {"physical", "content"}；content 帧构造时强制
+     `input_layout == final_layout`（2026-11-12 fold 保留 swap P0 的
+     防复发契约）；physical 帧允许初始布局 ≠ 最终布局；
+   - 布局字典构造时复制（防候选间/调用方别名污染）。
+2. `qtrail/pure/circuit.py::Inst` 改为 frozen dataclass，新增
+   `tu_locked: bool = False` 字段；Circuit.copy 改为列表浅拷贝（Inst
+   不可变后共享安全——历史上浅拷贝+原地改 qubits 的 qaoa_8 候选
+   污染类 bug 由类型系统根除）。
+3. 原地修改点全部改 `dataclasses.replace` 生成新对象：
+   post.absorb_trailing（measure 同步）、post_v2.noise_aware_relabel、
+   post_v2.learned_relabel.apply_pi、collect_resynthesize 的 tu_locked
+   标记。
+4. `_v5_pipeline` 四类候选（fold_only_relabel / fold_relink /
+   fold_keep / bare）全部经 CandidateResult；评分与决胜 payload 改为
+   候选对象；消费方按 input_layout 更新布局。
+5. 测试 `tests/test_candidate_frame.py`（4 项）：帧契约（正/负例）、
+   布局复制、Inst 不可变 + replace + Circuit.copy 隔离、管线候选集成
+   （qaoa12 至少 1 个 content 帧候选）。
+
+**预注册判据与裁决**：
+- P1-P3 类型契约/值语义/不可变性：全过。
+- P4 管线集成：全部候选为 CandidateResult、帧合法、fold 类候选存在。
+- **黄金不变性**：重构前快照（qft5/ghz10/qaoa12 → 157/57/152 门）与
+  重构后交付门流逐门一致，final_layout/layout/四项指标完全一致。
+- 全量测试：197 passed（+4 新测试），2 pre-existing failures（同前）。
+
+**下一步**：§5 第 5 项（时间感知保真度模型：门时间 + T1/T2 + rz=0 +
+swap 折算，2-3 天）。预注册判据先行。
