@@ -1481,3 +1481,44 @@ tables/final_report_v7_pre_linear/，本批 = linear 默认 + 两个 P0
 - 延迟比较一律用 log_est_fidelity（乘积下溢）；_v5_not_worse 已改
   log 口径；纯 CLI 的 qiskit 断言只在 A2 后端允许
 - 交付包用 tools/build_delivery.py 重建（--check 可只读校验）
+
+### -6 补充四十七（2026-11-13，执行顺序第 1 项完成：不变式文档 + property 测试）
+
+**完成内容**（用户确认的 academic_review_gaps.md §5 第 1 项）：
+1. `docs/correctness_theorems.md` 新增 T5（路由器链调度顺序不变式：
+   逐比特门序保持 + 附着规则 + 内容末态=final_layout）、T6（fold 坐标
+   帧：U_F=P_arr·U_R / arr=None 返回本体零修改 / "保留 swap"形态不
+   存在 + 结构采用条件）、T7（C1 重标记双射：occupied 全集 / measure
+   同步 / 合法性与单调性），均含证明骨架、代码锚点、防复发映射。
+2. `tests/test_invariants_property.py`（新增，5 项测试，1.2s）：
+   - test_router_schedule_order_property：12 种子逐比特门序判定 +
+     动态恢复逻辑线路的逐态等价（4 输入态）+ 内容末态=final_layout
+   - test_router_empty_dep_1q_regression：P0 最小复现族
+   - test_fold_coordinate_frame_property：合成可吸收形态 12/12，
+     帧恒等式（U_F = P_arr·U_R 的逻辑空间读法）+ 链化合法
+   - test_fold_abandon_no_side_effects：真实 routed 产物放弃路径
+   - test_relabel_bijection_property：真机拓扑 BFS 连通片 + 2Q 孤立位
+     （occupied 全集场景），双射/标签域/相邻/语义/单调
+3. **变异验证**：临时恢复"空依赖附着"旧规则 → 回归测试红；
+   临时删除 fold 的 arr 更新 → 帧测试红。均已 git checkout 还原。
+
+**本轮关键发现（方法学）**：
+- 原始 routed 电路的门标签 = **发射时刻**物理坐标，静态 final_layout
+  逆映射做语义锚点只在 |0⟩ 巧合成立（实测 fid=1 vs 0.0024）；正确锚点
+  = 沿输出 swap 的动态内容追踪（T5 判定器即此结构）。
+- fold 采用条件是结构性的：swap 之后触碰其端点的 2Q 门在 arr 调整后
+  仍须相邻。恒等布局下真实 routed 产物采用率 0/60（qft5/ghz10/qaoa12
+  + 随机小线路）；可吸收形态 = swap 后只接内容相邻门（不相交边
+  swap+同对门）。这解释了 fold 候选的低采用率。
+- C1 移动触发需真机校准（合成校准方差不足 → 0 移动）；测试用
+  `build_tianyan287_real_spec`。
+- 测试模拟器的 `_apply` 必须保持门参数给出的比特顺序（sorted 会把
+  反向 cx 的控制/目标弄反——test_pure_v2 因比较双方同构侥幸未暴露）。
+
+**测试状态**：`python -m pytest tests/ -q` → 165 passed, 2 pre-existing
+failures（test_fit_block_torch_exact 精度 0.99999939 vs 1-1e-9 阈值；
+test_platform_verifier_needs_key 因环境存在 TIANYAN_LOGIN_KEY）——
+均与主线无关，历次记录一致。
+
+**下一步**：§5 第 2 项（生产路径语义回归门禁进 pytest：参数化
+linear/fixpoint × 候选路径 × 特殊角模式，1 天）。预注册判据先行。

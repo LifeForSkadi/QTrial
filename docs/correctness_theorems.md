@@ -84,6 +84,115 @@ cz 端点相邻、比特 ∈ [0,spec.n) 且非禁用、无 swap 残留），
 执行该扫描——合法性的数学判据与执行模型逐条对应，无推断步骤。
 ∎
 
+### T5 链调度顺序不变式（路由器，2026-11-13）
+
+**命题**：设路由器输入 C（逻辑比特，不含 swap），输出 R（物理坐标
++ 路由 swap + 末尾 measure）。沿 R 的 swap 做内容追踪
+（content[p] = 当前物理位 p 上的逻辑比特，初值 = layout 的逆），
+把 R 的非 swap 门映射回逻辑比特得到 R̂。则：
+(i) 对每个逻辑比特 q，R̂ 中 q 的门序列与 C 中 q 的门序列**逐门相同**
+（门名/参数/相对顺序），每门恰发射一次；
+(ii) 内容末态映射 = 路由器返回的 final_layout（作为 物理位→逻辑 的
+映射）；
+(iii) 1Q 门 k 附着于链 C_h **当且仅当** deps(k) ≠ ∅ 且
+deps(k) ⊆ chain_set(C_h)；空依赖门进入前沿后立即可执行，不被任何
+链延迟。
+
+**证明骨架**：
+1. deps 由 last_2q 前向跟踪构建，只记录"链头或独立 2Q 门"——链成员
+   被跳过（不更新 last_2q），故 deps 是程序序更早的 2Q 门集合，
+   DAG 无环；路由 swap 不改变该 DAG（qiskit apply_swap 语义）。
+2. 主循环每轮把 exec_now 按 sorted 程序序发射；1Q 门执行条件恒真
+   （`_nq[i]==1`），故空依赖 1Q 门在初始前沿按程序序一次发完。
+3. 唯一可能反转同比特顺序的路径：门 g 随链延迟，而同比特更晚的
+   g' 抢先发射。若 g' 触发"空依赖立即执行"，则该比特此前无任何
+   2Q 门 ⇒ g 也只能是空依赖 1Q 门（若 g 是 2Q 门或 deps 非空，
+   g' 的 last_2q 非空）——与第 2 条矛盾。若 g' 的 deps 非空，其
+   前沿插入条件（deps 清空且 owner=-1）要求 g 所在链已执行，而链
+   执行块按 [head, tail] 程序序发射 g。故顺序保持。
+4. 附着条件 (iii)：`deps(k)` 非空排除"空集 ⊆ 任意集合"的数学巧合
+   （2026-11-12 P0 的根因）；deps(k) ⊆ chain_set 保证等待该链安全
+   （全部前驱在该链块内发射）。
+5. 内容末态 = final_layout：router 的 pos 数组语义
+   （pos[逻辑]=物理、inv[物理]=逻辑）与内容追踪同构，逐步一致
+   （测试断言相等）。
+∎
+
+**代码锚点**：router.py deps/链构建（L217-253）、前沿与执行块
+（L284-457）、swap 发射与坐标更新（L715-760）；numba 内核
+router_kernel.py 头注释声明同款不变式（ab_router_kernel 18/18 逐位
+一致）。
+**防复发映射**：2026-11-12 P0（空依赖 1Q 门误附着 → 同比特顺序
+反转，交付重叠 0.484）由 (iii) 的 `deps(k) and` 修复。
+**检验**：tests/test_invariants_property.py::
+test_router_schedule_order_property（随机 12 种子逐比特门序 + 动态
+恢复线路逐态等价 + 内容末态=final_layout）、::
+test_router_empty_dep_1q_regression（最小复现族）。
+**测试方法注记（2026-11-13）**：原始 routed 电路的门标签是**发射
+时刻**物理坐标，不能用静态 final_layout 逆映射做语义锚点（|0⟩ 输入
+上巧合成立 fid=1，随机输入态 fid=0.0024）；正确锚点 = 沿输出 swap
+的动态内容追踪。
+
+### T6 坐标帧不变式（fold 类候选，2026-11-13）
+
+**命题**：设 R 为路由产物（门标签 = 物理坐标），fin 为 final_layout
+（逻辑→最终物理位）。fold_and_relink(R) 返回 (F, arr)：
+- arr ≠ None ⇒ 以 flb[k] = arr[fin[k]] 作为候选 final_layout 时，
+  F 与 R 在逻辑空间逐态等价；等价地（物理帧）U_F = P_arr · U_R，
+  其中 P_arr 是按 arr 重标记末态的置换。恒等布局下 flb 为恒等，
+  F 作为算子等于原始逻辑线路。
+- arr = None ⇒ F 就是 R 本体且 R 未被逐门修改（无收益/放弃折叠）。
+**不存在**"保留 swap 的折叠产物"这一形态。
+
+**证明骨架**：
+1. 折叠单遍 = 把每个 swap 向右穿过其后所有门（对门标签应用该交换）
+   + 删除 swap——置换代数恒等式，所有 swap 累积为末帧 P_arr，故
+   U_F = P_arr · U_R。
+2. 长程门链化（noise_aware_chain）= 每门 4(d−1) 个 cx 的精确恒等式；
+   cz → H·cx·H 精确 ⇒ 链化不改 U。
+3. 候选 final_layout 组合 flb = arr∘fin 即帧校正（arr[fin[k]] = k 的
+   内容初坐标）；_unmap 后逻辑空间逐态等价。
+4. 成本守卫触发时必须**整体放弃**（返回输入本体）：若保留 swap 的
+   同时更新 arr，同一物理交换被应用两次（内容坐标与物理坐标混用）
+   ——该形态无法局部修复，且与内容初始坐标约定互斥（负结果台账）。
+∎
+
+**采用条件（结构事实，2026-11-13 测试发现）**：吸收守卫要求
+swap(a,b) 之后每个触碰 a/b 的 2Q 门在 arr 调整（a↔b）后仍相邻。
+恒等布局下随机 routed 产物的每个路由 swap 之后必然跟着"内容坐标
+远距离"的原始门 ⇒ 采用率 0/60（qft5/ghz10/qaoa12 与随机小线路）；
+可吸收的最小形态 = swap 后只接内容相邻门（不相交边 swap + 同对
+2Q 门，测试构造 12/12 采用）。该事实解释了 fold 候选在管线中的
+低采用率，也是"保留 swap"分支无法局部修复的结构原因。
+**代码锚点**：post_v2.fold_and_relink（L1717-1809）；候选组合
+mapper.py（L296-307）。
+**检验**：tests/test_invariants_property.py::
+test_fold_coordinate_frame_property（合成可吸收形态：帧恒等式 +
+链化合法）、::test_fold_abandon_no_side_effects（真实 routed 产物
+放弃路径：返回本体、零修改）。
+
+### T7 重标记双射（C1：noise_aware_relabel，2026-11-13）
+
+**命题**：设 final_layout 为单射（逻辑→物理位），layout 同。
+noise_aware_relabel 的每次接受移动 p → p′（p∈used，p′∉occupied；
+occupied = 全部 ops 触点 ∪ measures ∪ final_layout 值 ∪ layout 值）
+是把 p 的全局标签置换为 p′：
+(a) 移动后 final_layout 仍为单射（值两两不同），layout 同步；
+(b) 所有 2Q 门端点相邻（接受前检查 all(adj[p′, x])）；
+(c) 边误差和严格下降 ⇒ 总（log）保真度单调不降；
+(d) measure 标签随同一置换同步。
+**证明骨架**：occupied 是当前全部被占物理位的集合，p′∉occupied
+⇒ 无其他逻辑比特占用 p′ ⇒ 单射保持；对每条 inst 同步替换 qubit
+标签 ⇒ 全局置换（酉等价）；(b)(c) 由过滤/接受条件直接给出；
+(d) 由 measure 同步循环给出。∎
+
+**防复发映射**：2026-11-12 P0（used 仅由 2Q 门填充 → 移动目标撞车，
+final_layout 出现重复值 {0:2,1:1,2:2}）由 occupied 全集修复；
+2026-11-13 P1（measure 不同步）由 (d) 修复。
+**检验**：tests/test_invariants_property.py::
+test_relabel_bijection_property（真机拓扑/校准、BFS 连通片、一个
+2Q 孤立位专测 occupied 全集；双射 + 标签域 + 相邻 + 语义 + 单调）。
+
 ## 2. 机制-结构映射（适用域可分析）
 
 每个优化组件的触发条件（类型无关、不含线路特判）与其收益结构

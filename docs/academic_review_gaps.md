@@ -163,8 +163,11 @@ if len(ops[k].qubits) == 1 and deps[k] <= chain_set:
 100 条中 9 条错（v5）——**全部来自这一条规则**。
 
 **当前状态**：已修复（router.py 中 `deps[k] and deps[k] <= chain_set`），
-修复后稀疏扫描 0/120 失败。但**形式化工作仍然缺失**——没有写成不变式文档，
-也没有 property-based 测试系统性生成"链阻塞 + 空依赖 + 同比特后续门"的反例族。
+修复后稀疏扫描 0/120 失败。**形式化与回归门禁已完成（2026-11-13）**：
+不变式写成 `correctness_theorems.md` T5（顺序保持 + 附着规则 + 内容
+末态=final_layout），property 测试
+`tests/test_invariants_property.py` 覆盖随机 12 种子逐比特门序 + 最小
+复现族；变异验证确认恢复旧规则会让测试变红。
 
 **改进方向**（成本低、价值高）：
 1. 在 `correctness_theorems.md` 写清链调度的两条不变式（顺序保持 + 附着规则）。
@@ -205,6 +208,11 @@ if len(ops[k].qubits) == 1 and deps[k] <= chain_set:
    之前的浅拷贝污染 bug）；measure 的跟随更新新增了两次 bug 才补齐。
 
 **改进方向**（架构重构的核心项）：
+- **坐标帧契约已形式化（2026-11-13）**：`correctness_theorems.md` T6
+  给出 fold 类候选的命题（U_F = P_arr·U_R；arr=None ⇒ 返回本体且零
+  修改；"保留 swap"形态不存在）与结构采用条件；property 测试
+  `test_fold_coordinate_frame_property` / `test_fold_abandon_no_side_effects`
+  锁定两类形态。类型化（下面的 CandidateResult）仍是执行顺序第 4 项。
 - 给候选结果定义类型：`CandidateResult(circuit, frame, output_layout, metrics)`，
   `frame` ∈ {physical, content}，消费方按 frame 决定如何解释标签。
 - 或者统一约定：**所有候选输出都用物理坐标**（内容坐标仅作为内部实现细节）——
@@ -443,7 +451,7 @@ torch 拟合路线可行但慢 1-2 个数量级（300-500 步/块）。
 
 | 优先级 | 事项 | 工作量 | 收益 |
 |---|---|---|---|
-| 1 | 链调度/坐标帧不变式写进定理文档 + property-based 测试 | 半天 | 把两类 P0 变成"不可能再犯" |
+| 1 | ✅ 链调度/坐标帧不变式写进定理文档 + property-based 测试（2026-11-13 完成：T5/T6/T7 + tests/test_invariants_property.py，5 项全过 + 变异验证） | 半天 | 把两类 P0 变成"不可能再犯" |
 | 2 | 生产路径语义回归门禁进 pytest（参数化：linear/fixpoint × 候选路径 × 特殊角模式） | 1 天 | 审查代理抓 bug 的速度 ←→ CI 自动抓 |
 | 3 | 自研闭式 3-CX 合成（Vatan-Williams 公式） | 1-2 天 | 去掉 A2 的 qiskit 依赖，叙事完整 |
 | 4 | 候选状态类型化（CandidateResult + 帧标记 + Inst 冻结） | 2-3 天 | 根治共享可变状态类 bug |
@@ -505,7 +513,10 @@ pending_decisions.md + negative_results_ledger.md。
 
 **最弱的三处**：
 1. **调度语义无形式化**（链归属 bug 的根源）——不是数学难，而是没写下来。
+   **已补（2026-11-13）**：T5 + property 测试，P0 形态已有回归门禁。
 2. **坐标帧约定靠注释**（fold bug 的根源）——架构级契约没有类型系统或文档保证。
+   **文档层已补（2026-11-13）**：T6；类型化（CandidateResult/Inst 冻结）
+   仍在执行顺序第 4 项。
 3. **保真度模型是代理指标**（下溢/无物理时间/rz 计误差）——相对比较有效，
    绝对声称要谨慎。
 
