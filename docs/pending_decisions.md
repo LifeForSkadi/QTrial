@@ -1424,3 +1424,60 @@ tables/final_report_v7_pre_linear/，本批 = linear 默认 + 两个 P0
 - 全部可比 386 条中位 **1.086**
 - P0-3（log 仲裁）使 medium 从中位 1.291→1.327、胜率 72%→73%
 - 生产 linear 路径审计 11/11 全过（audit_linear_final.out）
+
+### -5 补充四十六（2026-11-12，压缩恢复点：本轮收尾 + 下一轮改进计划）
+
+**git 状态**：HEAD=afea8eb（本轮完整提交链：9002179 候选族+merge →
+410f3d2 swap 翻译形态 → 82b3c50 深拷贝 P1 → e1c4076 C1 双射 P0 →
+1051ffa w_ext → c6de601 linear 默认 → fe168e4/95fb603/f66e862/
+8864d15 裁决记录 → 49ad4c2 A2 双后端 → 8e1fc66 log 保真度 P0 →
+3249943 delivery 重建 → 0e689ec 学术回顾 → 22e6ad1 VF2 详解 →
+2b6d058/afea8eb VF2 决策）。
+
+**本轮完成清单**（供回顾，无需重做）：
+1. 分解架构重排（linear 默认）：qv32 1Q 15,260 / depth 3,281 /
+   logf −30.22，三项全优于 qiskit O3；hwb12 墙钟 755→160s；
+   语义门禁（生产 linear 审计 11/11、稀疏扫描 0/120、fold 扫描
+   49/49 安全放弃）
+2. 外来审查（两代理）5 个真 bug 全修：路由器链归属 P0、fold
+   保留 swap P0、C1 双射 P0、log 保真度 P0、w_ext 漂移 P1、
+   A2 诚实化 P1、delivery 重建 P0、T3 条件化、两处无证据声称更正
+3. 587 终版数字（final_report_v7 批次，旧行在
+   final_report_v7_pre_linear/ 与 pre_logfid/ 归档）：
+   small 1.003/55%、medium 1.327/73%、large 199/199 零错误
+   （无基线表）、全部可比 386 条中位 1.086
+4. 文档：docs/academic_review_gaps.md（理论薄弱点+文献差距+
+   执行顺序）、docs/vf2_postlayout_explained.md（VF2 详解+
+   决策记录）、delivery 重建脚本 tools/build_delivery.py
+5. 测试套件 159 通过（3 预存在失败：test_cli GBK、verify key
+   环境假设、fit_block_torch 精度抖动——与主线无关）
+
+**下一轮改进（用户已确认顺序，见 academic_review_gaps.md §5）**：
+1. 链调度/坐标帧不变式写进定理文档 + property-based 测试（半天）
+2. 生产路径语义回归门禁进 pytest（1 天）
+3. 自研闭式 3-CX 合成（Vatan-Williams，1-2 天，去 A2 的 qiskit 依赖）
+4. 候选状态类型化（CandidateResult + 帧标记 + Inst 冻结，2-3 天）
+5. 时间感知保真度模型（2-3 天）
+6. **自研 VF2++（方案 B，规格已确认）**：qtrail/pure/vf2pp.py，
+   VF2 五规则 + VF2++ 排序 + 搜索内增量打分（log 空间，含 1Q/读出）
+   + 分支限界 + 硬预算（call_limit≈2M / max_solutions≈4096 / wall 8s，
+   检查在递归内部）。预注册判据：≤20 与 networkx 最优分数一致；
+   >20 活跃精确嵌入成功率 ≥50%；单次 ≤8s、全管线墙钟增幅 ≤10%；
+   large 抽样 fid/depth 不劣化；零非法。分块 VF2 已否决、
+   rustworkx 仅备用（vf2_postlayout_explained.md §8）
+7. 开关收敛/死代码清理（1 天）
+
+**关键纪律（压缩后勿忘）**：
+- 预注册判据 + 台账查核先行；不达标即回退（开关默认关）
+- 新机制 O(m) 复杂度预算；验证覆盖机制触碰的模式（按模式枚举，
+  不靠随机抽样——本轮两次教训）
+- 语义验证必须含非平凡门与特殊角模式；候选路径都要覆盖
+- 后台任务输出直写文件；faulthandler 抓栈；心跳监控已挂（durable
+  cron，每 5 分钟，7 天有效）
+- 验证门禁命令：python -m pytest tests/ -q（159 过）、
+  scripts/audit_pure_pipeline.py（默认生产 linear；QTRAIL_AUDIT_FIXPOINT=1
+  切 fixpoint）、scripts/verify_decompose_linear_semantics.py、
+  scripts/ab_router_kernel.py（18/18）
+- 延迟比较一律用 log_est_fidelity（乘积下溢）；_v5_not_worse 已改
+  log 口径；纯 CLI 的 qiskit 断言只在 A2 后端允许
+- 交付包用 tools/build_delivery.py 重建（--check 可只读校验）
