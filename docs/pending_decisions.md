@@ -1813,3 +1813,50 @@ ba9ee56→52d948a→bbade1c→83835f4→e03742d）。
 `bench_qiskit_baseline_models.py` 与输出目录 `tables/final_report_v8/`、
 `tables/qiskit_baseline_models/`；`scripts/retry_timeouts*` 为早前遗留。
 后台任务：587 v8 分片组（harness task id bfunuuv7k）。
+
+### -13 补充五十五（2026-11-13，v8 全量完成 + 真机可行性/正确性复核 + 推送）
+
+**v8 全量 587 条完成**（14 分片，seeds=16；medium 4 条 900s 超时：
+`bp_feynman_hwb11`、`bp_feynman_hwb12`、`bp_vqe_uccsd_n28` 两条，与
+v7 同口径）。产物 `tables/final_report_v8/{bucket}_fidelity_rows.jsonl`
++ `summary_v8.md`（含 vs v7/v3/感知 O3/pytket 与 RL+感知 O3 对比）。
+
+**分层结果（product 口径，均值/截尾/中位）**：
+- small（129）：fid **0.7349/0.7760/0.8482**；vs RL+感知 O3 可比 128
+  条中位 **1.006**、胜率 **55%**；vs Qiskit aw_o3 **0.970/13%**；
+  vs v7 **1.000/57%**。
+- medium（255，4 超时）：**0.1458/0.0975/0.0230**；vs RL+感知 O3
+  254 条 **1.404/76%**；vs aw_o3 **0.730/30%**；vs v7 **1.000/60%**。
+- large（199）：**0.0028/0.0000/0.0000**；vs aw_o3 **0.056/19%**；
+  vs v7 **1.017/73%**（基线表无 large RL+感知 O3 行，不可比）。
+
+**正确性 / 真机可行性复核**：
+- 全量测试 **210 passed + 2 已知环境性失败**（`test_fit_block_torch_exact`
+  容差；`test_platform_verifier_needs_key` 因本机存在 `TIANYAN_LOGIN_KEY`
+  反向断言），与改动前一致，无新增失败。
+- 发布前分层抽样审计 `scripts/audit_v8_release.py`（31 条：
+  small 13 / medium 12 / large 6）：**合法 31/31**（门集 ⊆
+  {rz,sx,x,cz,measure}、cz 相邻、无禁用/越界比特、无 swap 残留、
+  measure 位与 final_layout 一致）；**measure 语义 31/31**；
+  k≤16 的 **15 条紧凑子空间态矢量 fid=1.000000000**。
+- 权威端到端 `verify_e2e_production.py`（A2 自研 VW 默认路径）：
+  h16 合法 + measure + 语义 **fid=1.000000**；h25 合法 + measure
+  （k=25 的 2^25 态矢量过重，语义行未跑完，未作为判据）。
+- 历史全量合法性：v7-pre-linear `legality_rows_*` **595 行（含重试）
+  全合法**；超时线路重试 hwb11/vqe_uccsd 合法
+  （`scripts/retry_timeouts2.out`）。
+
+**工作区整理（推送前）**：
+- `.gitignore` 排除：脚本 stdout/临时文件、v8 日志、QA 截图、外部参考
+  代码（QubitRouter-RL-main）、本地 `.claude/`、promo_video、*.rar、
+  `delivery/`（由 tools/build_delivery.py 重建）、分片原始数据与
+  v7/v8 中间 summary。
+- 入库：v7/v8 合并主行 + `summary_v8.md`；`tables/compare_models/
+  rl_o3_587_rows.jsonl`（388 行主基线）等对比数据；rl_route_scorer
+  检查点；审计脚本与结果。
+- 删除空悬空文件 ` 与 产物作用`。
+
+**结论**：当前生产管线（第 1–7 项改动后）产物在抽样与组件级证据上
+满足真机合法 + 语义正确；v8 相对报告书主基线 RL+感知 O3 在 small
+持平/略优、medium 明显更优（1.404/76%），相对 Qiskit 自带噪声感知
+O3 仍有差距（如实披露）。

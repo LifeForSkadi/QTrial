@@ -26,6 +26,13 @@ TARGETS = [
     "bp_vqe_uccsd_n28_vqe_uccsd_n28",
     "graphstate_25",
     "bp_basis_trotter_n4_basis_trotter_n4_transpiled",
+    # 2026-11-13 补：medium 分片 900s 超时 5 条（merge O(n) 修复后
+    # 可能能过）
+    "graphstate_50",
+    "qaoa_25",
+    "qaoa_50",
+    "qft_25",
+    "qft_50",
 ]
 OUT = Path("tables/final_report_v7/legality_rows_retry.jsonl")
 

@@ -30,3 +30,30 @@ tables/final_report/*.jsonl
 研究进展汇报.md
 研究进展讲稿.md
 tables/report_figures/slides/
+
+# ===== 运行产物（脚本 stdout / 调试临时文件 / QA 截图） =====
+scripts/*.out
+scripts/v8logs/
+scripts/tmp_*/
+scripts/tmp_*.qasm
+_qa_*.png
+_qa_*.jpg
+
+# ===== 外部参考代码 / 本地工具 / 大归档 =====
+.claude/
+QubitRouter-RL-main/
+promo_video/
+*.rar
+
+# ===== 构建产物（tools/build_delivery.py 重建） =====
+delivery/
+
+# ===== 分片原始数据（合并后的主行文件与 summary 入库） =====
+tables/final_report_v7/*_shard*.jsonl
+tables/final_report_v8/*_shard*.jsonl
+tables/final_report_v7/summary.md
+tables/final_report_v8/summary.md
+tables/final_report_v7_pre_linear/
+tables/final_report_v7_pre_logfid/
+tables/_stale_medium_old_router/
+tables/qiskit_baseline_models/*_shard*.jsonl

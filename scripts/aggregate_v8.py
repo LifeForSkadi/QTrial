@@ -36,6 +36,14 @@ def _load(p: Path) -> dict:
     return out
 
 
+def _load_bucket(base: Path, bucket: str) -> dict:
+    """主文件 + 分片文件合并（同 aggregate 主逻辑）。"""
+    out = _load(base / f"{bucket}_fidelity_rows.jsonl")
+    for sp in sorted(base.glob(f"{bucket}_fidelity_rows_shard*.jsonl")):
+        out.update(_load(sp))
+    return out
+
+
 def _trimmed(vals):
     vals = sorted(vals)
     if not vals:
@@ -85,10 +93,10 @@ def main():
                                   for r in rows), encoding="utf-8")
         ok = [r for r in rows if "qt_fidelity" in r]
         n_err = len(rows) - len(ok)
-        v7 = _load(V7 / f"{bucket}_fidelity_rows.jsonl")
-        v3 = _load(V3 / f"{bucket}_fidelity_rows.jsonl")
-        old = _load(OLD / f"{bucket}_fidelity_rows.jsonl")
-        v6 = _load(V6 / f"{bucket}_fidelity_rows.jsonl")
+        v7 = _load_bucket(V7, bucket)
+        v3 = _load_bucket(V3, bucket)
+        old = _load_bucket(OLD, bucket)
+        v6 = _load_bucket(V6, bucket)
         ok7 = [v7[r["circuit"]] for r in ok if r["circuit"] in v7]
         ok3 = [v3[r["circuit"]] for r in ok if r["circuit"] in v3]
         ok6 = [v6[r["circuit"]] for r in ok if r["circuit"] in v6]
@@ -122,6 +130,23 @@ def main():
             lines.append(f"\n相对感知 O3：可比 {n} 条，中位比值 "
                          f"{statistics.median(ratios):.3f}，胜率 "
                          f"{100 * wins / n:.0f}%。\n")
+        # 相对 RL+感知 O3（报告书主基线；仅 small+medium 有行）
+        rl = _load(Path("tables/compare_models/rl_o3_587_rows.jsonl"))
+        rr, rw, rn = [], 0, 0
+        for r in ok:
+            o = rl.get(r["circuit"])
+            if not o or o.get("rl_o3_fidelity") is None:
+                continue
+            q = r["qt_fidelity"]
+            b = o["rl_o3_fidelity"]
+            rr.append(q / b)
+            rn += 1
+            if q > b:
+                rw += 1
+        if rn:
+            lines.append(f"相对 RL+感知 O3（报告书主基线）：可比 {rn} 条，"
+                         f"中位比值 {statistics.median(rr):.3f}，胜率 "
+                         f"{100 * rw / rn:.0f}%。\n")
         # 相对 v7（同线路）
         r7, w7, n7 = [], 0, 0
         for r in ok:

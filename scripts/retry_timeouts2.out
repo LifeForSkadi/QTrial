@@ -1,0 +1,6 @@
+bp_feynman_hwb11: 合法=True twoq=245397 depth=521808 (896.9s)
+bp_feynman_hwb12: 仍超时（1800s）
+bp_square-heisenberg_square_heisenberg_N49: 合法=True twoq=252 depth=469 (1321.2s)
+bp_vqe_uccsd_n28_vqe_uccsd_n28: 合法=True twoq=252988 depth=744891 (680.5s)
+graphstate_25: 文件未找到，跳过
+bp_basis_trotter_n4_basis_trotter_n4_transpiled: 合法=True twoq=398 depth=1235 (357.0s)
