@@ -1686,7 +1686,9 @@ def fold_and_relink(circ: Circuit, spec, max_relink: int = 800,
       2. 折叠后的 2Q 门若不相邻 → KMS 链分解（4(d-1) 门，噪声感知选路）
       3. 逐 swap 净收益判定（2026-11-10 修复全折叠的长链爆炸）：吸收
          swap 前前瞻其影响集（后续含 a/b 的 2Q 门），链化距离 ≤ d_max
-         且总链成本 < 3 才吸收，否则保留 swap（局部保守、语义正确）
+         且总链成本 < 3 才吸收；否则**放弃整个折叠**（返回 None，
+         由调用方其他候选兜底）——2026-11-12 审查 P0 修复：保留
+         swap 与内容初始坐标约定互斥（见分支注释）
     语义等价（置换折叠是代数恒等）+ 硬件合法（链门在路径相邻对上）。
 
     返回 (new_circuit, arr)：arr = 折叠置换（未采用时为 None）。
@@ -1746,21 +1748,17 @@ def fold_and_relink(circ: Circuit, spec, max_relink: int = 800,
                     ok = False
                     break
             if not ok:
-                # 不吸收：保留 swap（按当前 arr 映射标签）——但标签
-                # 置换仍发生（2026-11-13 真机合法性暴露的老 bug：
-                # 漏 arr 同步交换导致后续门映射错位、保留的 swap
-                # 端点经后续置换后可不相邻）
-                qa, qb = int(arr[a]), int(arr[b])
-                if spec.adj[qa, qb]:
-                    out.append(Inst("swap", (qa, qb)))
-                # 审查 P1-2 修复（2026-11-13）：保留的 swap 在 fold
-                # 坐标下可能非相邻（arr 端点 = 两内容的初始坐标，
-                # 可相距甚远）——非相邻则强制吸收：下游 2Q 分支
-                # 经 noise_aware_chain 保证合法（链化），保留 swap
-                # 则会在分解后产生非相邻 cz 破坏 I-合法。
-                arr[a], arr[b] = arr[b], arr[a]
-                i += 1
-                continue
+                # 【P0 修复 2026-11-12，学术审查代理捕获】此前"保留
+                # swap"分支发射 swap(arr[a],arr[b]) 并同步交换 arr——
+                # 在内容初始坐标约定下（输出门标签 = arr[物理位]），
+                # 物理 swap 本身就是纯重标记（只该更新 arr），再发射
+                # 一个 swap = 应用两次，产物与 routed 不等价（随机
+                # routed 电路 37/40 失败，管线中被选中即错）。
+                # 该分支无法局部修复（保留 swap 需要物理坐标记账，
+                # 与输出的内容坐标约定互斥）——正确做法 = 放弃折叠，
+                # 由调用方其他候选兜底（fold_only+VF2 / fold_keep /
+                # 裸路由，均语义已验证）。
+                return circ, None
             # 吸收：置换并入 arr
             arr[a], arr[b] = arr[b], arr[a]
             i += 1

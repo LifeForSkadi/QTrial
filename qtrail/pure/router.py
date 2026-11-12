@@ -229,7 +229,12 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         if len(ops[i].qubits) == 2:
             for q in ops[i].qubits:
                 last_2q[int(q)] = i
-    # 链区间内的 1Q 门并入链（qiskit 附着语义）：deps ⊆ 本链 2Q 集
+    # 链区间内的 1Q 门并入链（qiskit 附着语义）：deps 非空且 ⊆ 本链 2Q 集
+    # 【P0 修复 2026-11-12，学术审查代理捕获】空依赖（无任何前驱 2Q）
+    # 的 1Q 门曾被空集 ⊆ 任意链集合的数学巧合挂到无关链上——延迟发射
+    # 使其被同比特更晚的空依赖 1Q 门超过（顺序反转）。最小复现：
+    # cz(0,1); rz(2,.5); sx(0); sx(1); cz(0,1); sx(2)（链端非相邻）
+    # → sx(2) 先于 rz(2) 交付，重叠 0.48。空依赖门必须立即可发射。
     chain_1q_owner = [-1] * m
     for head in range(m):
         if chain_prev[head] != -1 or chain_next[head] == -1:
@@ -243,7 +248,8 @@ def sabre_route(circ: Circuit, spec, layout: dict, seed: int = 0,
         while chain_next[tail] != -1:
             tail = chain_next[tail]
         for k in range(head + 1, tail + 1):
-            if len(ops[k].qubits) == 1 and deps[k] <= chain_set:
+            if len(ops[k].qubits) == 1 and deps[k] \
+                    and deps[k] <= chain_set:
                 chain_1q_owner[k] = head
 
     succ = [set() for _ in range(m)]
