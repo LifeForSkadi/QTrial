@@ -227,6 +227,16 @@ class PureMapper:
             lam0_part = [pi for pi in pool[10:13]] \
                 if noise_lambda != 0.0 and len(pool) > 10 else []
             pool = noise_part + lam0_part
+        # 稀疏奇环结构布局候选（2026-11-13）：路由前"删一条同色边 →
+        # 路径嵌入"，唯一长程门交给 SABRE 链化。仅非二分且最大度 ≤2
+        # 的交互图触发，其余线路候选池与生产行为不变。
+        # QTRAIL_SPARSE_CYCLE_LAYOUT=0 关闭（A/B 复现用）。
+        import os
+        if os.environ.get("QTRAIL_SPARSE_CYCLE_LAYOUT", "1") != "0":
+            from qtrail.pure.relabel_vf2 import sparse_cycle_layout
+            pi_s = sparse_cycle_layout(circ, self.spec)
+            if pi_s is not None:
+                pool.append(pi_s)
         if not pool:
             pi_h = heuristic_layout(graph, self.spec, self._rng)
             pi_h, _ = improve_layout(graph, self.spec.dist, pi_h,

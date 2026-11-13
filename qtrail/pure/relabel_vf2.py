@@ -224,6 +224,117 @@ def _partial_embedding(circ, spec, time_budget: float = 10.0,
     return best_map
 
 
+def _bipartite_conflicts(nodes, edges):
+    """BFS 二着色返回同色边（proto_edge_delete.py 同款，2026-11-13）。
+
+    注意：同一条奇环上删哪条边会改变 H' 的节点标签，进而影响 VF2
+    搜索成败（graphstate_105 实测：删 (8,45) 8s 内找到，删 (26,49)
+    超时）——调用方应依次尝试多个冲突边。
+    """
+    import collections
+    adj = collections.defaultdict(set)
+    for a, b in edges:
+        adj[a].add(b)
+        adj[b].add(a)
+    color = {}
+    bad = []
+    for start in nodes:
+        if start in color:
+            continue
+        color[start] = 0
+        dq = collections.deque([start])
+        while dq:
+            u = dq.popleft()
+            for v in adj[u]:
+                if v not in color:
+                    color[v] = 1 - color[u]
+                    dq.append(v)
+                elif color[v] == color[u]:
+                    e = (u, v) if u < v else (v, u)
+                    if e not in bad:
+                        bad.append(e)
+    return bad
+
+
+def sparse_cycle_layout(circ: Circuit, spec, time_budget: float = 8.0):
+    """稀疏**非二分**低度交互图（典型：奇数环）的结构布局先验。
+
+    动机（2026-11-13）：graphstate_105 是 105 节点奇环，7×15 设备
+    二分（53/52）→ 精确嵌入数学上不可能；RL 布局 + SABRE 产生
+    192 swaps（2Q 681）。本函数在**路由前**做"删一条同色边 → 路径
+    嵌入"，把唯一长程门交给 SABRE 链化：实测 5 swaps、2Q 120、
+    2Q 深度 23（优于 O3 的 30）。
+
+    仅当交互图最大度 ≤2 且非二分时返回布局（pi 数组，逻辑→物理）；
+    其余情况返回 None，生产行为完全不变。
+
+    Returns: np.ndarray[int] 长度 circ.n，或 None。
+    """
+    from qtrail.pure.vf2pp import VF2Config, find_embedding
+
+    edges = _interaction_graph(circ)
+    if not edges:
+        return None
+    # 小线路不启用：布局空间小、SABRE 已接近最优；实测 toffoli_n3
+    # 会出现 2Q 9→12 的轻微回归（2026-11-13 A/B），故仅 n≥10 启用。
+    if circ.n < 10:
+        return None
+    H_adj = {}
+    for a, b in edges:
+        H_adj.setdefault(a, set()).add(b)
+        H_adj.setdefault(b, set()).add(a)
+    if max(len(v) for v in H_adj.values()) > 2:
+        return None
+    active = sorted(H_adj)
+    conflicts = _bipartite_conflicts(active, edges.keys())
+    if not conflicts:
+        return None  # H 二分：交给常规布局/重标记
+    usable = [q for q in range(spec.n)
+              if q not in set(spec.disabled_qubits)]
+    err2q = spec.calib.err_2q
+    med = float(np.median(list(err2q.values()))) if err2q else 1e-3
+    w1q = {p: 0 for p in active}
+    for inst in circ.ops:
+        if inst.nq == 1:
+            q = int(inst.qubits[0])
+            if q in w1q:
+                w1q[q] += 1
+    wro = {p: 0 for p in active}
+    for m in circ.measures:
+        q = int(m.qubits[0])
+        if q in wro:
+            wro[q] += 1
+    # 删哪条同色边会改变 H' 标签、影响 VF2 搜索成败——依次尝试
+    # （graphstate_105 实测：删 (8,45) 找到，删 (26,49) 超时）。
+    mapping = None
+    if len(conflicts) > 1:
+        cands = [set(conflicts)] + [{c} for c in conflicts[:3]]
+    else:
+        cands = [set(conflicts)]
+    per_try = max(0.5, min(8.0, time_budget))
+    for bad in cands:
+        h2 = {e: n for e, n in edges.items() if e not in bad}
+        mapping, _score = find_embedding(
+            active, h2, spec.adj, usable,
+            spec.calib.err_1q, spec.calib.err_ro, err2q, med,
+            w1q, wro, VF2Config(wall_limit=per_try))
+        if mapping is not None:
+            break
+    if mapping is None:
+        return None
+    pi = np.full(circ.n, -1, dtype=int)
+    for a, b in mapping.items():
+        pi[int(a)] = int(b)
+    used = set(int(x) for x in pi[pi >= 0])
+    free_phys = [q for q in usable if q not in used]
+    free_log = [i for i in range(circ.n) if pi[i] < 0]
+    for i, q in zip(free_log, free_phys):
+        pi[i] = int(q)
+    if any(int(x) < 0 for x in pi):
+        return None
+    return pi
+
+
 def _complete_permutation(mapping: dict, n: int) -> dict:
     """把活跃位置的部分置换补全为 [0, n) 上的双射。
 

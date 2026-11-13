@@ -1,0 +1,6 @@
+{"circuit": "graphstate_105", "arm": "off", "twoq": 681, "twoq_depth": 75, "depth": 158, "swaps": 192, "logf": -7.504452926559975, "fid": 0.0005506270013679536, "wall": 16.77, "violations": []}
+{"circuit": "graphstate_105", "arm": "on", "twoq": 120, "twoq_depth": 21, "depth": 39, "swaps": 5, "logf": -2.6264837944956256, "fid": 0.07233235102542776, "wall": 23.37, "violations": []}
+{"circuit": "graphstate_100", "arm": "off", "twoq": 100, "twoq_depth": 5, "depth": 8, "swaps": 0, "logf": -2.0951008243908693, "fid": 0.123057835797135, "wall": 15.27, "violations": []}
+{"circuit": "graphstate_100", "arm": "on", "twoq": 100, "twoq_depth": 5, "depth": 8, "swaps": 0, "logf": -2.0951008243908693, "fid": 0.123057835797135, "wall": 15.11, "violations": []}
+{"circuit": "ghz_n78", "arm": "off", "twoq": 77, "twoq_depth": 77, "depth": 159, "swaps": 0, "logf": -1.9113173857128012, "fid": 0.1478854360505416, "wall": 11.19, "violations": []}
+{"circuit": "ghz_n78", "arm": "on", "twoq": 77, "twoq_depth": 77, "depth": 159, "swaps": 0, "logf": -1.9113173857128012, "fid": 0.1478854360505416, "wall": 11.33, "violations": []}

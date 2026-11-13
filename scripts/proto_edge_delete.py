@@ -8,11 +8,15 @@
   4. 残边用 chain_long_gates 链化（最短路径 CX 链）；
   5. 结果：2Q 681→124、2Q 深度 75→23、logf −7.504→−2.668。
 
-⚠️ 未接入生产：生产 `global_relabel` 作用在 `fold_only(routed)` 上，
-折叠后的内容图是 16-环 + 89-环（不是逻辑 105 环），删边后成为
-"16-环 + 89-路径覆盖全部 105 个设备节点"的精确覆盖问题，VF2 10s
-内无解。下一步是**预路由布局先验**（在路由前嵌入逻辑图，把唯一
-长程门交给 SABRE），详见 docs/qft_graphstate_analysis.md §2.6。
+⚠️ 后处理路线未接入：生产 `global_relabel` 作用在 `fold_only(routed)`
+上，折叠后的内容图是 16-环 + 89-环（不是逻辑 105 环），删边后成为
+精确覆盖问题，VF2 10s 内无解。
+
+生产采用的等价机制是**预路由布局先验**
+（`relabel_vf2.sparse_cycle_layout`，2026-11-13 已接入）：
+graphstate_105 实测 2Q 120、2Q 深度 21、swap 5、logf −2.626；
+graphstate_50 188→56。A/B 判据全过，详见
+docs/qft_graphstate_analysis.md §2.6 与台账 #25。
 """
 from __future__ import annotations
 
