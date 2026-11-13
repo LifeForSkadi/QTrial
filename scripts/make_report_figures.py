@@ -301,6 +301,11 @@ def fig3_stratified_fidelity(data, outdir, fig_no="3", out_name=None):
     total = sum(data.get("_counts", {}).values()) or 587
     fig.suptitle(f"图 {fig_no}  分层估计保真度对比（{total} 条完成，均值口径）",
                  fontsize=13, y=1.03)
+    # 2026-11-13 口径修正：pytket 基线布局未落盘、未补读出项，
+    # 数值偏乐观——图上明示，避免误读。
+    fig.text(0.995, 0.005,
+             "注：qiskit 四条基线已补读出；pytket 未修正（偏乐观）",
+             ha="right", va="bottom", fontsize=7.5, color=INK)
     fig.tight_layout()
     fig.savefig(outdir / (out_name or "图3_分层保真度对比.png"), dpi=200,
                 bbox_inches="tight", facecolor=SURFACE)
