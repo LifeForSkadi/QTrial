@@ -306,6 +306,9 @@ QFT 族。
   swap_test/graphstate 两臂完全相同，比值 1.000）
 - **P4 墙钟**：≤1.5× —— ✓（QFT 反而更快：10.6→6.9 s、
   24.3→11.8 s、28.6→15.8 s；QV +12%）
+- **回归**：`scripts/reproduce.py` **PASS**（10 条参考线路 ×3 seeds，
+  均值与 `tables/reference.json` 一致、±2% 容差内）——Warnsdorff
+  排序没有让固定基准漂移。
 
 ### 为什么"仅当 2Q 下降才采用"
 
