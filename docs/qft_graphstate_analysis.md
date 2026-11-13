@@ -313,7 +313,8 @@ QFT 族。
   24.3→11.8 s、28.6→15.8 s；QV +12%）
 - **回归**：`scripts/reproduce.py` **PASS**（10 条参考线路 ×3 seeds，
   均值与 `tables/reference.json` 一致、±2% 容差内）——Warnsdorff
-  排序没有让固定基准漂移。
+  排序与 `pre_cancel` 默认开启都没有让固定基准漂移（qft_15 的
+  CX 对在预消化中无净减少，守卫按设计拒绝切换）。
 
 ### 为什么"仅当 2Q 下降才采用"
 
