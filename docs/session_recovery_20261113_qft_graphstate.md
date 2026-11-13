@@ -1,5 +1,12 @@
 # 会话恢复点：QFT / graphstate 短板归因研究（2026-11-13）
 
+> **已完成的后续（2026-11-13 晚）**：本文件的假设已逐条验证/证伪，
+> 修复与全量重跑已落地。详见
+> [`docs/qft_graphstate_analysis.md`](qft_graphstate_analysis.md)：
+> QFT = 预路由消化（非 cp 分解；cp=1CZ+3rz 已证明不成立），
+> graphstate = 移除 max_active + Warnsdorff；`pre_cancel` 已默认开，
+> 584 条重跑 large 均值 0.0028→0.0072、对 O3 胜场 38→118/199。
+
 ## 当前状态
 
 - `main` HEAD `b7c85d4`（large 门数归因扫描 + 报告边界），已推送；本地与远端同步。
