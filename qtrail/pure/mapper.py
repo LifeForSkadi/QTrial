@@ -46,7 +46,7 @@ class PureMapper:
                  full_eval_max_n: int = 50, full_eval_topk: int = 6,
                  fold_keep_on: bool = True,
                  linear_decompose: bool = True,
-                 pre_cancel: bool = False,
+                 pre_cancel: bool = True,
                  pre_cancel_max_ops: int = 200_000):
         from qtrail.config import Config
         self.spec = spec

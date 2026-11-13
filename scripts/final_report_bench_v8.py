@@ -47,7 +47,20 @@ BP = Path("data/benchpress/qasm")
 RULE = "fidelity"
 
 
-def load_circuits():
+def load_circuits(use_cache: bool = True):
+    """加载分层线路；默认读写 buckets_cache.pkl。
+
+    2026-11-13：benchpress 里含数十万门的大线路，656 个文件全量解析
+    单进程需数分钟；并行分片时每个进程都重解析一遍是纯浪费。首次
+    解析后 pickle 缓存（文本 + 分层），后续进程秒级加载。
+    """
+    import pickle
+    cache = OUT / "buckets_cache.pkl"
+    if use_cache and cache.exists():
+        try:
+            return pickle.loads(cache.read_bytes())
+        except Exception:  # noqa: BLE001 缓存损坏则重算
+            pass
     from qiskit import qasm2  # noqa: F401（与 v3 完全同口径）
     buckets = {"small": [], "medium": [], "large": []}
     skipped = 0
@@ -78,6 +91,12 @@ def load_circuits():
                 or re.search(r"\.0D1_\.1D2_", p.name):
             buckets["medium"].append(
                 (p.stem, sanitize_qasm(p.read_text(encoding="utf-8"))))
+    if use_cache:
+        try:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_bytes(pickle.dumps((buckets, skipped)))
+        except Exception:  # noqa: BLE001
+            pass
     return buckets, skipped
 
 
@@ -131,13 +150,16 @@ def main():
     ap.add_argument("--timeout", type=float, default=None,
                     help="每线墙钟超时（秒）。超时写 timeout 错误行并跳过"
                          "（守护线程残留，进程退出时自动回收）")
+    ap.add_argument("--dev", default=None,
+                    help="cpu/cuda；默认自动。并行分片时建议显式 cpu"
+                         "（多进程同时建 CUDA context 会空转/卡死）")
     args = ap.parse_args()
     buckets_sel = [b for b in args.buckets.split(",") if b]
     shard_id = shard_n = None
     if args.shard:
         shard_id, shard_n = (int(x) for x in args.shard.split("/"))
         assert 0 <= shard_id < shard_n
-    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    dev = args.dev or ("cuda" if torch.cuda.device_count() > 0 else "cpu")
     print(f"dev={dev} buckets={buckets_sel}", flush=True)
     dev_cfg = load_device_config()
     cfg = Config()
