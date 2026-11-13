@@ -125,7 +125,9 @@ def main():
     buckets_sel = [b for b in args.buckets.split(",") if b]
 
     import torch
-    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    # 并行分片时用 CUDA_VISIBLE_DEVICES="" 强制 CPU；
+    # is_available() 在空可见列表下仍可能为 True，用 device_count() 判定
+    dev = "cuda" if torch.cuda.device_count() > 0 else "cpu"
     spec = build_tianyan287_spec(load_device_config())
     policy, ck = QAPolicy.load_checkpoint(CKPT, device_n=spec.n,
                                           map_location=dev)
