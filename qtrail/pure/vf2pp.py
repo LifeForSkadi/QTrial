@@ -32,6 +32,12 @@ class VF2Config:
     max_solutions: int = 4096
     wall_limit: float = 8.0
     check_every: int = 1024
+    # 候选设备节点排序策略（2026-11-13 QFT/graphstate 归因研究）：
+    # "score" = 历史行为，按 log 噪声分数降序（结构盲，稀疏长环上
+    # 搜索爆炸——graphstate_100 60s 无解）；
+    # "warnsdorff" = 结构优先，自由邻居越少越先，分数仅作平局
+    # （Hamiltonian 路径经典启发式；同实例 54 次尝试/6ms 找到 96-环）。
+    cand_order: str = "warnsdorff"
 
 
 def _log1m(e: float) -> float:
@@ -189,9 +195,14 @@ def find_embedding(nodes, h_edges: dict, g_adj, usable: list,
                 cnt = h_edges.get((u, m), h_edges.get((m, u), 1))
                 sc += cnt * _log1m(e)
                 new_scored += cnt
-            cand.append((sc, new_scored, v))
-        cand.sort(key=lambda t: (-t[0], t[2]))
-        for sc, new_scored, v in cand:
+            cand.append((sc, new_scored, v, free_nbrs))
+        if cfg.cand_order == "warnsdorff":
+            # 结构优先（Warnsdorff）：自由邻居少 → 先尝试（最受限优先），
+            # 噪声分数仅作平局。对路径/环类稀疏模式是决定性改进。
+            cand.sort(key=lambda t: (t[3], -t[0], t[2]))
+        else:
+            cand.sort(key=lambda t: (-t[0], t[2]))
+        for sc, new_scored, v, _free in cand:
             mapping[u] = v
             used.add(v)
             dfs(idx + 1, partial + sc, unscored_edges - new_scored)

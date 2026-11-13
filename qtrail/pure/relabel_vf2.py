@@ -97,8 +97,7 @@ def _exact_embedding_networkx(circ, spec, time_budget: float = 15.0,
     return best
 
 
-def _exact_embedding(circ, spec, time_budget: float = 15.0,
-                     max_active: int = 40):
+def _exact_embedding(circ, spec, time_budget: float = 15.0):
     """H 的支撑图嵌入设备图：返回置换 dict {旧位置: 新位置} 或 None。
 
     嵌入语义：把活跃位置（含 2Q 门的位置）重命名到设备节点上，使
@@ -112,23 +111,31 @@ def _exact_embedding(circ, spec, time_budget: float = 15.0,
     （tests/test_vf2pp.py 的 ≤20 最优分数等价性验证）。
     开关 QTRAIL_VF2_IMPL=networkx 可切回旧路径（A/B/复现用）。
 
-    管线激活上限 max_active=40（2026-11-13 A/B 裁决）：>40 的线路交互图
-    在 587 large 组几乎全为不可嵌入（10×10 格子/稠密 QV/50 环），旧实现
-    也直接跳过——保持跳过可避免 graphstate_50 类"白耗预算"的墙钟回归；
-    算法本身对 25/36/50 节点可嵌入图均能在 ≤1s 内找到映射
-    （tests/test_vf2pp.py 能力测试）。
+    **无节点数上限（2026-11-13 QFT/graphstate 归因修正）**：此前
+    管线层硬门槛 max_active=40 是"graphstate_50 白耗预算"的过度反应
+    ——graphstate_100（100 活跃、100 边、最大度 2）实际可精确嵌入
+    （Qiskit SabreLayout 的 initial layout 即 0-SWAP 见证），旧门槛
+    直接跳过导致 2Q 652 vs 100。现改为：
+      1) 必要条件零成本可证伪：H 的边数 > 设备边数 → 必然不可嵌入；
+         度序列支配在 find_embedding 内已检查；
+      2) 搜索本身只受 VF2Config 硬预算（calls / solutions / 墙钟）约束，
+         不再按节点数拒绝——稠密线路由条件 1 直接淘汰，稀疏线路
+         （graphstate/ghz/bv 类）获得精确嵌入机会。
+    候选排序改为 Warnsdorff 结构优先（见 vf2pp.VF2Config.cand_order），
+    同实例从 60s 无解降至 0.01s。
     """
     import os
     if os.environ.get("QTRAIL_VF2_IMPL", "vf2pp").lower() == "networkx":
         return _exact_embedding_networkx(
-            circ, spec, time_budget=time_budget,
-            max_active=min(max_active, 20))
+            circ, spec, time_budget=time_budget, max_active=20)
     from qtrail.pure.vf2pp import VF2Config, find_embedding
     edges = _interaction_graph(circ)
     if not edges:
         return None
     active = sorted({p for e in edges for p in e})
-    if len(active) > max_active:
+    # 必要条件（零成本可证伪）：子图边数不能超过设备边数
+    n_dev_edges = int(np.asarray(spec.adj).sum()) // 2
+    if len(edges) > n_dev_edges:
         return None
     usable = [q for q in range(spec.n)
               if q not in set(spec.disabled_qubits)]

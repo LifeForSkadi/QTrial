@@ -45,7 +45,9 @@ class PureMapper:
                  pipeline: str = "v4", full_eval: bool = True,
                  full_eval_max_n: int = 50, full_eval_topk: int = 6,
                  fold_keep_on: bool = True,
-                 linear_decompose: bool = True):
+                 linear_decompose: bool = True,
+                 pre_cancel: bool = False,
+                 pre_cancel_max_ops: int = 200_000):
         from qtrail.config import Config
         self.spec = spec
         self.policy = policy
@@ -75,6 +77,15 @@ class PureMapper:
         # qiskit O3（−30.5）、hwb12 墙钟 755s→160s——默认开启；
         # False 保留为 fixpoint 消融参照
         self.linear_decompose = linear_decompose
+        # 预路由语义保持消化（2026-11-13 QFT 归因）：路由前先做平台
+        # 分解 + 消去（等价 qiskit O3 init 的 InverseCancellation /
+        # CommutativeCancellation），再在消化后的线路上做布局/路由。
+        # 动机（qft_N055 实测）：3051 CX → 1411 2Q；裸路由 SWAP
+        # 1618 → 717（qiskit 796）；最终 2Q 6278 → 3343（qiskit O3
+        # 3351），1Q 17918 → 8432（qiskit 13151）。未消化时 SWAP 把
+        # 可对消的 CX 对打散，后处理无法恢复。
+        self.pre_cancel = pre_cancel
+        self.pre_cancel_max_ops = pre_cancel_max_ops
         self._full_result = None
         self._rng = np.random.default_rng(seed)
         self._dist_eff_cache = {}
@@ -447,6 +458,20 @@ class PureMapper:
                 f"circuit uses {circ.n} qubits but device {self.spec.name} "
                 f"has only {usable} usable qubits "
                 f"({len(set(self.spec.disabled_qubits))} disabled)")
+        # 预路由语义保持消化（可选，2026-11-13 QFT 归因）：在布局/路由
+        # 之前先做平台分解与对消，避免 SWAP 破坏可对消结构；语义由
+        # post_v2 分解的既有语义测试保证，测量与 cbits 原样保留。
+        if self.pre_cancel and len(circ.ops) <= self.pre_cancel_max_ops \
+                and any(i.nq == 2 for i in circ.ops):
+            from qtrail.pure.post_v2 import decompose_to_platform_v2
+            n2_old = sum(1 for i in circ.ops if i.nq == 2)
+            cand = decompose_to_platform_v2(
+                circ, spec=self.spec, linear=self.linear_decompose)
+            # 仅当确实减少 2Q 门数才采用：graphstate 类无可对消结构，
+            # 预消化只会改变嵌入评分权重（实测 logf −2.095→−2.278），
+            # 无收益不切换。
+            if sum(1 for i in cand.ops if i.nq == 2) < n2_old:
+                circ = cand
         graph = build_program_graph(circ.n, _ops_from_circuit(circ),
                                     circuit_id=circuit_id,
                                     temporal_alpha=self.cfg.graph.temporal_alpha)
