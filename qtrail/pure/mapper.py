@@ -464,7 +464,10 @@ class PureMapper:
         if self.pre_cancel and len(circ.ops) <= self.pre_cancel_max_ops \
                 and any(i.nq == 2 for i in circ.ops):
             from qtrail.pure.post_v2 import decompose_to_platform_v2
-            n2_old = sum(1 for i in circ.ops if i.nq == 2)
+            # 守卫按"展开后等效 2Q 数"比较：swap 会被分解为 3 个 2Q，
+            # 不能按 1 个计（否则 swap 多的线路会误拒有收益的消化）。
+            n2_old = sum(3 if i.name == "swap" else 1
+                         for i in circ.ops if i.nq == 2)
             cand = decompose_to_platform_v2(
                 circ, spec=self.spec, linear=self.linear_decompose)
             # 仅当确实减少 2Q 门数才采用：graphstate 类无可对消结构，
