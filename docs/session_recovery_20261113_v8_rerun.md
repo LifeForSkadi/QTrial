@@ -65,3 +65,47 @@
 - 合法性：`scripts/verify_all_legality.py`、`scripts/run_legality_v8_parallel.sh`
 - 基础设施：`scripts/final_report_bench_v8.py`（--dev + 桶缓存）、
   `scripts/run_bench_v8_parallel.sh`
+
+---
+
+## 更新（2026-11-13 晚，压缩前状态）
+
+### HEAD 与提交
+
+- `main` HEAD **9a65005**（已推送）；关键提交：
+  - `2f985a6` 口径修正：qiskit 基线补回读出误差（large 结论反转）；
+  - `0531197` 奇环删边嵌入原型（逻辑图 681→124；折叠图失效）；
+  - `813387f` 合法性复验收口（584 条产物 0 非法，2 超时）；
+  - `9a65005` 稀疏奇环预路由布局先验（graphstate_105 681→120）。
+
+### 本轮新增结论
+
+1. **基线读出 bug（台账 #24）**：`final_report_bench.py` 剥离 measure，
+   基线保真度不含读出；修正后 large：QTrial 0.0075 vs 感知 O3
+   0.0091（胜 123/199）、盲目 O1 0.0038（胜 189/199）；等权 log
+   我们 −48.4 vs −50.6/−74.7。pytket 与 RL+O3 未修正（偏保守）。
+2. **large 乘积均值 99.9% 来自 35 条带测量浅层线路**；剩余均值差距
+   87% 来自 bv 星形族（逻辑度数 36 > 设备最大度 4）。
+3. **奇环先验（台账 #25）**：graphstate_105 2Q 681→120、swap 192→5、
+   logf −7.504→−2.626；graphstate_50 188→56；A/B P1–P4 全过；
+   graphstate_100/ghz_n78 逐位一致。
+4. **合法性**：584 条产物 0 非法、0 布局非单射、2 条超时
+   （bp_feynman_hwb12、bp_vqe_uccsd_n28）。
+
+### 仍未完成
+
+- **真机 v9**：10 个作业（tianyan176）已提交，`tables/real_machine_v9/
+  jobs.json` 保存 qid；轮询至 16:12 仍 0 返回。若后续返回：
+  `python scripts/real_machine_v9_analyze.py x5 ghz5 ghz10 ghz15 qft5 qft6 qaoa12`
+  → `python scripts/make_real_machine_v9_figure.py`。若无返回：如实记录
+  "已提交待返回"，不伪造数据。
+- **bv 星形路由**：尚未实现（设计：comb/hub-aware 专用调度；SABRE
+  57–137 swaps，O3 的 2Q 总数 86–127）。已作为后续方向记录。
+- docx/PPT 中嵌入的图 3/5.2 仍是旧版（图已重生成，media 未重建）。
+
+### 工作树
+
+- 未提交 31 项：外部 agent 的 `scripts/thesis/content*.json`、`web/`、
+  `README.md`、`作品报告书.docx`、`决赛提交/` 等（勿动）。
+- 本轮产物均已提交：`tables/final_report_v8/`、`tables/ab_sparse_cycle/`、
+  `tables/report_figures/`、`docs/negative_results_ledger.md` 等。
