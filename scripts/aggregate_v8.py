@@ -79,7 +79,8 @@ def main():
              "相对比值无物理意义，跨方法应看 2Q 深度/门数与 log 口径。\n",
              "- 基线 SWAP 列是 qiskit `count_ops(\"swap\")` 口径（swap 已分解"
              "为 cz，恒 0），不可与 QTrial 残留 swap 直接比较。\n",
-             "- medium 为 255/259 完成子集（4 条 900s 超时，见行文件）。\n"]
+             "- medium 为 258/258 完成（2026-11-13 全量重跑，0 错误；"
+             "旧版 4 条 900s 超时已不再出现）。\n"]
     for bucket in BUCKETS:
         rows = []
         main_p = OUT / f"{bucket}_fidelity_rows.jsonl"

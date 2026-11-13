@@ -53,6 +53,10 @@ def _oneq_matrix(name: str, params: tuple):
         return np.array([[0.0, 1.0], [1.0, 0.0]])
     if name == "u1":
         return np.diag([1.0, np.exp(1j * params[0])])
+    if name == "id":
+        # 输入级线路可能含 id（无操作）；预路由消化会把它送进 1Q 游程
+        # 合并（2026-11-13 pre_cancel 实测 error_correctiond3 崩溃修复）
+        return np.eye(2, dtype=complex)
     if name == "u2":
         # Circuit API 直通 u2（qasm 解析器已归一化为 u3）
         return _oneq_matrix("u3", (math.pi / 2, params[0], params[1]))
