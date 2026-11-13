@@ -304,7 +304,7 @@ def fig3_stratified_fidelity(data, outdir, fig_no="3", out_name=None):
     # 2026-11-13 口径修正：pytket 基线布局未落盘、未补读出项，
     # 数值偏乐观——图上明示，避免误读。
     fig.text(0.995, 0.005,
-             "注：qiskit 四条基线已补读出；pytket 未修正（偏乐观）",
+             "注：全部基线（qiskit 四条 + pytket）均已补回读出误差",
              ha="right", va="bottom", fontsize=7.5, color=INK)
     fig.tight_layout()
     fig.savefig(outdir / (out_name or "图3_分层保真度对比.png"), dpi=200,

@@ -17,7 +17,7 @@ TITLES = {"small": "≤10 比特", "medium": "11-50 比特",
 COLS = ["b_o1", "b_o3", "aw_o1", "aw_o3"]  # 表中列序：感知O3 感知O1 盲目O3 盲目O1
 COL_ORDER = ["aw_o3", "aw_o1", "b_o3", "b_o1"]
 LABEL2KEY = {"感知O3": "aw_o3", "感知O1": "aw_o1",
-             "盲目O3": "b_o3", "盲目O1": "b_o1"}
+             "盲目O3": "b_o3", "盲目O1": "b_o1", "pytket": "tket"}
 
 
 def fmt(st):
@@ -50,13 +50,33 @@ def main():
             cells[2] = f" {fmt(st['qt'])} "
             for j, key in enumerate(COL_ORDER):
                 cells[3 + j] = f" {fmt(st[key])} "
+            if "tket" in st:  # 第 7 列 pytket（2026-11-13 已补读出）
+                cells[7] = f" {fmt(st['tket'])} "
             return "|".join(cells)
         sec = re.sub(r"\| 估计保真度 \|[^\n]*\|", repl_row, sec)
+
+        # 指标行（SWAP/深度/2Q 深度）：QTrial 与 pytket 列同步
+        def repl_metric(m):
+            cells = m.group(0).split("|")
+            label = cells[1].strip()
+            key = {"SWAP 数": "swaps", "深度": "depth",
+                   "2Q 深度": "twoq_depth"}.get(label)
+            if key is None:
+                return m.group(0)
+            qv = st.get("qt_metrics", {}).get(key)
+            if qv:
+                cells[2] = " " + "/".join(f"{x:.4f}" for x in qv) + " "
+            tv = st.get("tket_metrics", {}).get(key)
+            if tv:
+                cells[7] = " " + "/".join(f"{x:.4f}" for x in tv) + " "
+            return "|".join(cells)
+        sec = re.sub(r"\| (?:SWAP 数|2Q 深度|深度) \|[^\n]*\|",
+                     repl_metric, sec)
         # 2) 胜场行：vs 感知O3 / vs 盲目O1（pytket 不动）
         def repl_wins(m):
             line = m.group(0)
             for label, key in LABEL2KEY.items():
-                if label == "pytket":
+                if key not in st:
                     continue
                 line = re.sub(
                     rf"(vs {label} \*\*)\d+(\*\*)",
@@ -66,16 +86,20 @@ def main():
         out.append(sec)
     text = "".join(out)
     note = (
-        "\n> **口径修正（2026-11-13）**：此前基线在 transpile 前剥离了 "
+        "> **口径修正（2026-11-13）**：此前基线在 transpile 前剥离了 "
         "measure，乘积保真度未计读出项；QTrial 产物带 measure、计了读出。"
-        "本表基线列已用 `scripts/fix_baseline_readout.py` 按原线路实际"
-        "测量的逻辑比特补回读出（门级保真度逐条复现旧表）。无 measure "
-        "的线路两侧均只计门误差。pytket 列未修正（布局未落盘），"
-        "其对比仍偏保守。详见 `summary_v8_corrected.md` 与台账 #24。\n")
-    if "口径修正（2026-11-13）" not in text:
+        "本表基线列已用 `scripts/fix_baseline_readout.py`（qiskit 四条，"
+        "门级逐条复现）与 `scripts/fix_pytket_readout.py`（pytket 保留 "
+        "measure 映射、当前版本重跑；旧表部分线路不可复现，见台账 #27）"
+        "补回读出。无 measure 的线路两侧均只计门误差。详见 "
+        "`summary_v8_corrected.md` 与台账 #24/#27。")
+    if "口径修正（2026-11-13）" in text:
+        text = re.sub(r"^> \*\*口径修正（2026-11-13）\*\*.*$", note,
+                      text, flags=re.M)
+    else:
         text = text.replace(
             "统计：均值/截尾(去10%)/中位数。",
-            "统计：均值/截尾(去10%)/中位数。" + note)
+            "统计：均值/截尾(去10%)/中位数。\n\n" + note)
     path.write_text(text, encoding="utf-8")
     print(f"patched {path} (backup {backup})")
 
