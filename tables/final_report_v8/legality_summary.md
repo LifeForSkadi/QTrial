@@ -42,3 +42,19 @@ v8 可映射且在时限内完成的产物**未发现任何真机合法性违规
 final_layout 单射性）。合法性的剩余边界是：3 条超时未完成、3 条
 mid-circuit measure 输入被显式拒绝（不是产物非法，而是无法在本管线
 语义下安全映射）。
+
+## 复验（2026-11-13 晚，pre_cancel 默认启用后的最终产物）
+
+6 分片并发（`scripts/run_legality_v8_parallel.sh`，CPU、900s/条），
+对 `tables/final_report_v8/*_fidelity_rows.jsonl` 的 584 条产物重扫：
+
+| 项 | 数值 |
+|---|---|
+| 扫描覆盖 | **584**（small 127 / medium 258 / large 199） |
+| 合法 | **582**（small 127 / medium 256 / large 199） |
+| 非法（门集/相邻/禁用/越界/swap 残留/measure） | **0** |
+| 布局非单射 | **0** |
+| 超时（未产出映射，非非法） | **2**（bp_feynman_hwb12、bp_vqe_uccsd_n28） |
+
+结论：默认启用 `pre_cancel` 与 VF2++/Warnsdorff 改动后，全部已完成
+产物零非法；上一轮的 `bp_feynman_hwb11` 本轮已在时限内完成。
