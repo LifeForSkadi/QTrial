@@ -127,11 +127,15 @@ def load_final_report():
     sections = re.split(r"\n## ", text)
     strata_map = {"≤10": "≤10 比特", "11-50": "11-50 比特", "51-105": "51-105 比特"}
     wins = {"感知O3": 0, "pytket": 0, "盲目O1": 0}
+    counts = {}
     for sec in sections:
         title = sec.split("\n", 1)[0]
         key = next((k for k in strata_map if title.startswith(k)), None)
         if key is None:
             continue
+        mc = re.search(r"（(\d+) 条完成", title)
+        if mc:
+            counts[strata_map[key]] = int(mc.group(1))
         # 胜场行累计（图 8 用）
         for mth, pat in (("感知O3", r"vs 感知O3 \*\*(\d+)\*\*"),
                          ("pytket", r"vs pytket \*\*(\d+)\*\*"),
@@ -157,6 +161,7 @@ def load_final_report():
                         depth_trim=float(parts[1]), depth_median=float(parts[2]))
         out[strata_map[key]] = m
     out["_total_wins"] = wins            # 三层累计的总体胜场（图 8 用）
+    out["_counts"] = counts              # 各层完成条数（标题/加权用）
     return out
 
 
@@ -228,7 +233,7 @@ def load_compare_models():
 
 
 # ---------------------------------------------------------------- 各图
-def fig1_training(curves, outdir):
+def fig1_training(curves, outdir, fig_no="1", out_name=None):
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
     for ax, curve in zip(axes, curves):
         lab, ep, vc, wall = curve
@@ -253,15 +258,15 @@ def fig1_training(curves, outdir):
                     fontsize=10, color=INK2)
         style_ax(ax, "训练轮次", "每轮训练耗时（秒）")
         ax.set_ylim(0, max(wall) * 1.25)
-    fig.suptitle("图 1  布局策略训练过程（验证集平均代价收敛 + 单轮耗时）",
+    fig.suptitle(f"图 {fig_no}  布局策略训练过程（验证集平均代价收敛 + 单轮耗时）",
                  fontsize=13, y=1.02)
     fig.tight_layout()
-    fig.savefig(outdir / "图1_训练学习曲线.png", dpi=200,
+    fig.savefig(outdir / (out_name or "图1_训练学习曲线.png"), dpi=200,
                 bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
 
 
-def fig3_stratified_fidelity(data, outdir):
+def fig3_stratified_fidelity(data, outdir, fig_no="3", out_name=None):
     fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
     for ax, stratum in zip(axes, ["≤10 比特", "11-50 比特", "51-105 比特"]):
         m = data[stratum]
@@ -293,15 +298,16 @@ def fig3_stratified_fidelity(data, outdir):
         ax.set_title(stratum, fontsize=11, color=INK)
         ax.legend(frameon=False, fontsize=8, loc="upper right",
                   ncols=2, columnspacing=0.6)
-    fig.suptitle("图 3  分层估计保真度对比（587 条线路，均值口径）",
+    total = sum(data.get("_counts", {}).values()) or 587
+    fig.suptitle(f"图 {fig_no}  分层估计保真度对比（{total} 条完成，均值口径）",
                  fontsize=13, y=1.03)
     fig.tight_layout()
-    fig.savefig(outdir / "图3_分层保真度对比.png", dpi=200,
+    fig.savefig(outdir / (out_name or "图3_分层保真度对比.png"), dpi=200,
                 bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
 
 
-def fig4_stratified_depth(data, outdir):
+def fig4_stratified_depth(data, outdir, fig_no="4", out_name=None):
     fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
     for ax, stratum, logy in zip(axes, ["≤10 比特", "11-50 比特", "51-105 比特"],
                                  [False, True, True]):
@@ -336,21 +342,23 @@ def fig4_stratified_depth(data, outdir):
                         bbox=dict(boxstyle="round,pad=0.15",
                                   facecolor=SURFACE, edgecolor="none"))
         if not logy:
-            ax.set_ylim(0, max(vals) * 1.25)
+            # 1.45 倍留出顶部图例空间（v8 感知 O1 深度 250 会与图例相撞）
+            ax.set_ylim(0, max(vals) * 1.45)
         style_ax(ax, "", "线路深度（截尾均值）" if stratum == "≤10 比特" else "")
         ax.set_title(f"{stratum}" + ("（对数刻度）" if logy else ""),
                      fontsize=11, color=INK)
         ax.legend(frameon=False, fontsize=8, loc="upper right",
                   ncols=2, columnspacing=0.6)
-    fig.suptitle("图 4  分层线路深度对比（截尾均值口径，去两端 10% 极值）",
+    total = sum(data.get("_counts", {}).values()) or 587
+    fig.suptitle(f"图 {fig_no}  分层线路深度对比（{total} 条完成，截尾均值口径）",
                  fontsize=13, y=1.03)
     fig.tight_layout()
-    fig.savefig(outdir / "图4_分层深度对比.png", dpi=200,
+    fig.savefig(outdir / (out_name or "图4_分层深度对比.png"), dpi=200,
                 bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
 
 
-def fig6_defect_sweep(sweep, outdir):
+def fig6_defect_sweep(sweep, outdir, fig_no="6", out_name=None):
     fig, ax = plt.subplots(figsize=(7.5, 4.2))
     mults = [m for m, _ in sweep]
     # 末端标签按数值排序后错开纵偏移，避免数值接近时重叠
@@ -370,15 +378,15 @@ def fig6_defect_sweep(sweep, outdir):
     style_ax(ax, "缺陷误差放大倍数", "2Q 误差加权均值")
     ax.set_xticks(mults)
     ax.legend(frameon=False, fontsize=9, loc="upper left")
-    fig.suptitle("图 6  缺陷敏感性扫描（噪声感知的鲁棒性证据）", fontsize=13,
-                 y=1.02)
+    fig.suptitle(f"图 {fig_no}  缺陷敏感性扫描（噪声感知的鲁棒性证据）",
+                 fontsize=13, y=1.02)
     fig.tight_layout()
-    fig.savefig(outdir / "图6_缺陷敏感性扫描.png", dpi=200,
+    fig.savefig(outdir / (out_name or "图6_缺陷敏感性扫描.png"), dpi=200,
                 bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
 
 
-def fig7_cross_topo(ct, outdir):
+def fig7_cross_topo(ct, outdir, fig_no="7", out_name=None):
     fig, ax = plt.subplots(figsize=(8.5, 4.2))
     groups = [g for g, _ in ct]
     series = ("QTrial", "感知O1", "感知O3", "盲目O1", "pytket")
@@ -407,32 +415,34 @@ def fig7_cross_topo(ct, outdir):
     ax.set_xticklabels(groups, fontsize=10)
     style_ax(ax, "", "2Q 误差加权均值（越低越好）")
     ax.legend(frameon=False, fontsize=9, loc="upper right")
-    fig.suptitle("图 7  跨拓扑噪声规避（同一策略零重训迁移）", fontsize=13,
-                 y=1.02)
+    fig.suptitle(f"图 {fig_no}  跨拓扑噪声规避（同一策略零重训迁移）",
+                 fontsize=13, y=1.02)
     fig.tight_layout()
-    fig.savefig(outdir / "图7_跨拓扑噪声规避.png", dpi=200,
+    fig.savefig(outdir / (out_name or "图7_跨拓扑噪声规避.png"), dpi=200,
                 bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
 
 
-def fig8_overall(data, outdir):
-    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0))
+def fig8_overall(data, outdir, fig_no="8", out_name=None):
+    fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.0))
     ax = axes[0]
-    # 总体保真度 = 分层均值按层内线路数加权（129/259/199 → 587）
-    counts = {"≤10 比特": 129, "11-50 比特": 259, "51-105 比特": 199}
+    # 总体保真度 = 分层均值按层内完成条数加权（v8：127/254/199 → 580）
+    counts = data.get("_counts", {"≤10 比特": 129, "11-50 比特": 259,
+                                  "51-105 比特": 199})
+    total = sum(counts.values()) or 587
     series = [s for s in METHOD_ORDER
               if all(data[strt][s]["fidelity_mean"] is not None
                      for strt in counts)]
     vals = [sum(data[strt][s]["fidelity_mean"] * counts[strt]
-                for strt in counts) / sum(counts.values())
+                for strt in counts) / total
             for s in series]
     rects = ax.bar(range(len(series)), vals, 0.62,
                    color=[COLORS[s] for s in series], zorder=3)
     ax.set_xticks(range(len(series)))
     ax.set_xticklabels([METHOD_LABELS[s].replace("（本方案）", "") for s in series],
-                       fontsize=9)
+                       fontsize=8.5)
     value_labels(ax, rects, fmt="{:.3f}", fontsize=9)
-    style_ax(ax, "", "总体估计保真度（587 条加权均值）")
+    style_ax(ax, "", f"总体估计保真度（{total} 条加权均值）")
     ax.set_ylim(0, max(vals) * 1.2)
     ax = axes[1]
     wins = data.get("_total_wins", {})
@@ -449,14 +459,14 @@ def fig8_overall(data, outdir):
                     ha="center", va="bottom", fontsize=10, color=INK2)
     style_ax(ax, "", "逐线路胜场数")
     ax.set_ylim(0, max(wins.values()) * 1.25)
-    fig.suptitle("图 8  与成熟映射方案总体对比", fontsize=13, y=1.03)
+    fig.suptitle(f"图 {fig_no}  与成熟映射方案总体对比", fontsize=13, y=1.03)
     fig.tight_layout()
-    fig.savefig(outdir / "图8_总体对比.png", dpi=200,
+    fig.savefig(outdir / (out_name or "图8_总体对比.png"), dpi=200,
                 bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
 
 
-def fig9_laurel_detail(rows, outdir):
+def fig9_laurel_detail(rows, outdir, fig_no="9", out_name=None):
     fig, ax = plt.subplots(figsize=(9.5, 4.2))
     names = [r[0] for r in rows]
     diffs = [r[1] - r[2] for r in rows]
@@ -473,10 +483,10 @@ def fig9_laurel_detail(rows, outdir):
     ax.annotate(f"LAUREL 更优 {n_win} 条 / 共 {len(diffs)} 条",
                 xy=(0.02, 0.9), xycoords="axes fraction", fontsize=10,
                 color=INK2)
-    fig.suptitle("图 9  LAUREL 与原配置逐线路保真度差（QUEKO BIGD）",
+    fig.suptitle(f"图 {fig_no}  LAUREL 与原配置逐线路保真度差（QUEKO BIGD）",
                  fontsize=13, y=1.02)
     fig.tight_layout()
-    fig.savefig(outdir / "图9_LAUREL逐线路对比.png", dpi=200,
+    fig.savefig(outdir / (out_name or "图9_LAUREL逐线路对比.png"), dpi=200,
                 bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
 
@@ -661,9 +671,28 @@ def main():
 
     fig10_layout_contribution(outdir)
     print("图10 布局贡献对比: OK")
-    # thesis 版（内部标题与第 5 章编号一致：图5.6）
-    fig10_layout_contribution(outdir / "thesis", fig_no="5.6",
-                               out_name="图5.6_布局贡献对比.png")
+    # thesis 版（内部标题与第 5 章编号一致：图5.1-5.10）
+    thesis_dir = outdir / "thesis"
+    thesis_dir.mkdir(parents=True, exist_ok=True)
+    if curves:
+        fig1_training(curves, thesis_dir, fig_no="5.1",
+                       out_name="图5.1_训练学习曲线.png")
+    fig3_stratified_fidelity(data, thesis_dir, fig_no="5.2",
+                             out_name="图5.2_分层保真度对比.png")
+    fig4_stratified_depth(data, thesis_dir, fig_no="5.3",
+                          out_name="图5.3_分层深度对比.png")
+    fig6_defect_sweep(load_defect_sweep(), thesis_dir, fig_no="5.4",
+                      out_name="图5.4_缺陷敏感性扫描.png")
+    fig7_cross_topo(load_cross_topo(), thesis_dir, fig_no="5.5",
+                    out_name="图5.5_跨拓扑噪声规避.png")
+    fig8_overall(data, thesis_dir, fig_no="5.9",
+                 out_name="图5.9_总体对比.png")
+    if cm:
+        fig9_laurel_detail(cm, thesis_dir, fig_no="5.10",
+                           out_name="图5.10_LAUREL逐线路对比.png")
+    fig10_layout_contribution(thesis_dir, fig_no="5.6",
+                              out_name="图5.6_布局贡献对比.png")
+    print("thesis 图5.1-5.6/5.9/5.10: OK")
 
     table1_training_settings(outdir)
     print("表1 训练设置: OK")
