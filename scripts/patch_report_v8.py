@@ -47,6 +47,7 @@ def main():
         def repl_row(m):
             cells = m.group(0).split("|")
             # cells: ['', ' 估计保真度 ', ' qt ', ' aw_o3 ', ... ' pytket ', '']
+            cells[2] = f" {fmt(st['qt'])} "
             for j, key in enumerate(COL_ORDER):
                 cells[3 + j] = f" {fmt(st[key])} "
             return "|".join(cells)
