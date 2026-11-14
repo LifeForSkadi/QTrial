@@ -133,18 +133,7 @@ def build():
     # ---------------- 附录
     render_blocks(doc, d3["appendix"])
 
-    # ---------------- 格式自检说明
-    page_break(doc)
-    heading1(doc, "格式自检说明")
-    for line in run_self_checks(blocks, heading_ids, d3):
-        para(doc, line, indent_chars=0)
-
-    # ---------------- 修改自检说明
-    page_break(doc)
-    heading1(doc, "修改自检说明")
-    for line in REVISION_CHECK:
-        para(doc, line, indent_chars=0)
-    _revision_table(doc)
+    # ---------------- 对外交付版：不附内部格式/修改自检说明
 
     try:
         doc.save(str(OUT))

@@ -141,7 +141,8 @@ async def map_circuit(
     from qtrail.pipeline.metrics import compute_metrics
 
     result = mapper.map_circuit(qc_clean, circuit_id="web")
-    final_qc = append_measurements(result.routed_qc, removed, result.final_layout)
+    final_qc = append_measurements(result.routed_qc, removed, result.final_layout,
+                                   original=qc)
     buf = io.StringIO()
     from qiskit import qasm2
     buf.write(qasm2.dumps(final_qc))

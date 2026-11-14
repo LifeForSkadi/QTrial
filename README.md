@@ -6,11 +6,11 @@
 
 目标硬件是[天衍量子计算云平台](https://tianyan.ustc.edu.cn)的「天衍-287」——祖冲之三号同款芯片，105 个比特、182 耦合器。**评测口径**（全部实验数字）用的是 15×7 完整矩形网格 + 合成校准；真机实测拓扑是弯曲排布（竖边+周期对角边）、当前可用 168 耦合器 + 4 个禁用比特，两者差异见技术报告 §1.2/§8.6（`scripts/d2_topology_compare.py` 可复现对照）。项目参加了 2026 年"揭榜挂帅"擂台赛的"量子+AI 双向赋能"榜题（AI 赋能量子计算 → 量子编译与线路优化方向）。
 
-想先看原理的，读 [docs/technical_report.md](docs/technical_report.md)（学术风格，含全部公式推导）；想看比赛版材料，读 [docs/competition_report.md](docs/competition_report.md)。本 README 负责把你从零带到能跑起来。
+想先看整体映射方案（组件、数据流、学术背景）的，读 [docs/mapping_scheme_guide.md](docs/mapping_scheme_guide.md)；想看学术推导，读 [docs/technical_report.md](docs/technical_report.md)（学术风格，含全部公式推导）；想看比赛版材料，读 [docs/competition_report.md](docs/competition_report.md)。本 README 负责把你从零带到能跑起来。
 
-### 结果速览（587 条线路，完整 Benchpress + MQTBench + QUEKO）
+### 结果速览（583 条完成线路，完整 Benchpress + MQTBench + QUEKO）
 
-均值口径的估计保真度：QTrial **0.196**，噪声感知 O3 0.244（我们是它的 0.80 倍），pytket 0.187（**超过**），盲目 O1 0.123 / 盲目 O3 更低。逐线路胜场（534 条全完成）：vs 噪声感知 O3 29、vs pytket **134**、vs 盲目 O1 **226**。详细分层表（≤10 / 11-50 / 51-105 比特，均值/截尾/中位三口径）见 [tables/final_report/report.md](tables/final_report/report.md)。说句实话：大线路（51-105 比特）是我们目前最弱的一层——自研后处理栈还做不到 qiskit 那种把置换完全吸收进酉重合成的 0-SWAP，差距的来源和技术报告 §9 里写得明明白白，不藏着掖着。
+均值口径的估计保真度：QTrial **0.227**，噪声感知 O3 0.246（我们是它的 0.924 倍），pytket 0.187（**超过 1.21 倍**），盲目 O1 0.123 / 盲目 O3 0.142（**均超过**）。逐线路胜场（583 条完成）：vs 噪声感知 O3 **130**、vs pytket **469**、vs 盲目 O1 **531**。小规模（≤10 比特）与感知 O3 基本持平（0.965 倍），11-50 比特为其 0.895 倍；大线路层改用 2Q 深度衡量，与 pytket 持平（3031 vs 3025）。详细分层表（均值/截尾/中位三口径）见 [tables/submission/summary.md](tables/submission/summary.md)。说句实话：51-105 比特层的 2Q 深度仍比 qiskit 感知 O3 高约 34%，差距的来源（1Q 门体积与块模板效率）在报告书 5.4.6 节写得明明白白，不藏着掖着。
 
 ---
 

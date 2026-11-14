@@ -1,0 +1,90 @@
+{"circuit": "scaling/s105_high_k0", "n_qubits": 105, "trivial_swaps": 786, "wall_s": 0.004}
+{"circuit": "scaling/s105_high_k1", "n_qubits": 105, "trivial_swaps": 796, "wall_s": 0.003}
+{"circuit": "scaling/s105_high_k2", "n_qubits": 105, "trivial_swaps": 736, "wall_s": 0.003}
+{"circuit": "scaling/s105_high_k3", "n_qubits": 105, "trivial_swaps": 770, "wall_s": 0.003}
+{"circuit": "scaling/s105_high_k4", "n_qubits": 105, "trivial_swaps": 677, "wall_s": 0.003}
+{"circuit": "scaling/s105_low_k0", "n_qubits": 105, "trivial_swaps": 363, "wall_s": 0.003}
+{"circuit": "scaling/s105_low_k1", "n_qubits": 105, "trivial_swaps": 415, "wall_s": 0.002}
+{"circuit": "scaling/s105_low_k2", "n_qubits": 105, "trivial_swaps": 386, "wall_s": 0.003}
+{"circuit": "scaling/s105_low_k3", "n_qubits": 105, "trivial_swaps": 410, "wall_s": 0.003}
+{"circuit": "scaling/s105_low_k4", "n_qubits": 105, "trivial_swaps": 379, "wall_s": 0.003}
+{"circuit": "scaling/s105_mid_k0", "n_qubits": 105, "trivial_swaps": 535, "wall_s": 0.003}
+{"circuit": "scaling/s105_mid_k1", "n_qubits": 105, "trivial_swaps": 467, "wall_s": 0.002}
+{"circuit": "scaling/s105_mid_k2", "n_qubits": 105, "trivial_swaps": 520, "wall_s": 0.002}
+{"circuit": "scaling/s105_mid_k3", "n_qubits": 105, "trivial_swaps": 552, "wall_s": 0.003}
+{"circuit": "scaling/s105_mid_k4", "n_qubits": 105, "trivial_swaps": 568, "wall_s": 0.003}
+{"circuit": "scaling/s10_high_k0", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_high_k1", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_high_k2", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_high_k3", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_high_k4", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_low_k0", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_low_k1", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_low_k2", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_low_k3", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_low_k4", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_mid_k0", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_mid_k1", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_mid_k2", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_mid_k3", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s10_mid_k4", "n_qubits": 10, "error": "TranspilerError: 'Fewer qubits in the circuit (10) than the coupling map (105"}
+{"circuit": "scaling/s20_high_k0", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_high_k1", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_high_k2", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_high_k3", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_high_k4", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_low_k0", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_low_k1", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_low_k2", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_low_k3", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_low_k4", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_mid_k0", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_mid_k1", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_mid_k2", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_mid_k3", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s20_mid_k4", "n_qubits": 20, "error": "TranspilerError: 'Fewer qubits in the circuit (20) than the coupling map (105"}
+{"circuit": "scaling/s40_high_k0", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_high_k1", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_high_k2", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_high_k3", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_high_k4", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_low_k0", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_low_k1", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_low_k2", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_low_k3", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_low_k4", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_mid_k0", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_mid_k1", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_mid_k2", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_mid_k3", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s40_mid_k4", "n_qubits": 40, "error": "TranspilerError: 'Fewer qubits in the circuit (40) than the coupling map (105"}
+{"circuit": "scaling/s60_high_k0", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_high_k1", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_high_k2", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_high_k3", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_high_k4", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_low_k0", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_low_k1", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_low_k2", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_low_k3", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_low_k4", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_mid_k0", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_mid_k1", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_mid_k2", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_mid_k3", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s60_mid_k4", "n_qubits": 60, "error": "TranspilerError: 'Fewer qubits in the circuit (60) than the coupling map (105"}
+{"circuit": "scaling/s80_high_k0", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_high_k1", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_high_k2", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_high_k3", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_high_k4", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_low_k0", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_low_k1", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_low_k2", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_low_k3", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_low_k4", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_mid_k0", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_mid_k1", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_mid_k2", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_mid_k3", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}
+{"circuit": "scaling/s80_mid_k4", "n_qubits": 80, "error": "TranspilerError: 'Fewer qubits in the circuit (80) than the coupling map (105"}

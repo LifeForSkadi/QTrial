@@ -1,0 +1,52 @@
+# QTrail 路由 oracle 终局奖励训练（研究级训练目标升级）
+# 终局奖励 = 候选布局经 SabreSwap 的真实路由 SWAP 数（稀疏结构不变），
+# 直接对齐评测指标，根治"静态代理与真实路由脱节"问题。
+model:
+  encoder: gat
+  d: 128
+  gat_layers: 4
+  gat_heads: 8
+  gat_dropout: 0.1
+  norm: graph
+  decoder_heads: 16
+  clamp: 10.0
+  context: concat_project
+  rich_context: true
+  program_features: six
+  device_features: calib
+
+reward:
+  mode: combined
+  dist_mult: 2.0
+  normalize: true
+  depth_lambda: 0.1
+  oracle_mode: routing           # 路由 oracle 终局奖励（联合噪声）
+  oracle_max_n: 25               # oracle 适用于 ≤25 比特 episode（训练开销控制）
+  oracle_weight_cap: 5
+  oracle_noise_lambda: 1.0       # swap+噪声联合 oracle
+
+graph:
+  temporal_alpha: 0.5
+
+train:
+  seed: 42
+  epochs: 400
+  batch_size: 256
+  episodes_per_epoch: 1024       # oracle 路由开销下的合理规模
+  lr: 3.0e-4
+  lr_min: 3.0e-5
+  grad_clip: 1.0
+  entropy_beta: 0.0
+  baseline: self_critic
+  early_stop_patience: 50
+  log_every: 1
+  save_every: 5
+  compile: false
+  random_p: 0.3
+  size_mix: {small: 0.6, medium: 0.3, large: 0.1}
+  size_ranges: {small: [5, 25], medium: [26, 50], large: [51, 105]}
+  dataset_mix: {random: 0.5, circuit: 0.5}
+  curriculum: false
+  val_episodes: 96
+  val_seed: 1234
+  pool: data/mqtbench/graph_pool_t05_qasm.pkl

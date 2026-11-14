@@ -70,7 +70,7 @@ pre { background: var(--panel2); border-radius: 6px; padding: 10px; overflow: au
 <body>
 <header>
   <h1>QTrial <span class="hl">量子线路映射优化</span>演示</h1>
-  <p>CO-MAP 复现 + QTrail 优化 · 噪声感知强化学习初始映射 · 目标芯片：天衍-287（祖冲之三号同款 105 比特，15×7 网格）</p>
+  <p>CO-MAP 复现 + QTrail 优化 · 噪声感知强化学习初始映射 · 目标芯片：天衍-287（祖冲之三号同款架构 · 105 比特 · 15×7 网格）</p>
 </header>
 <main>
   <div class="panel">
@@ -107,7 +107,7 @@ cx q[4],q[0];"></textarea>
     <div class="row">
       <label>随机种子</label>
       <input type="number" id="seed" value="42" style="width:80px">
-      <label><input type="checkbox" id="compare" checked> 与 Qiskit SABRE 对比</label>
+      <label><input type="checkbox" id="compare"> 与 Qiskit SABRE 对比（参考）</label>
     </div>
     <button id="runBtn" style="width:100%">⚡ 执行映射</button>
     <div id="status"></div>
@@ -119,6 +119,7 @@ cx q[4],q[0];"></textarea>
       <div class="cards" id="cards"></div>
       <div class="chartbox" id="chartbox" style="display:none">
         <h3>与 Qiskit SABRE 对比</h3>
+        <div style="color:var(--dim);font-size:12px;margin:-6px 0 8px">参考口径：基线为 qiskit SABRE 直接编译，与报告书主表的统一后处理口径不同，仅用于交互参考。</div>
         <div id="charts"></div>
         <table class="cmp" id="cmpTable"></table>
       </div>

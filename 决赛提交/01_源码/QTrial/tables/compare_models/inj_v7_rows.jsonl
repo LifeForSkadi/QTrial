@@ -1,0 +1,28 @@
+{"circuit": "benchpress/clifford/clifford_100_12345", "n": 100, "v5_fidelity": 6.031764371352517e-194, "v5_depth": 69601, "v5_swaps": 12431, "v5_twoq": 42420, "v5_wall": 74.42, "inj_fidelity": 4.950220812047142e-128}
+{"circuit": "benchpress/clifford/clifford_20_12345", "n": 20, "v5_error": "QASMError: unknown gate 'cy'", "inj_fidelity": 2.471501131179649e-20}
+{"circuit": "benchpress/dtc/dtc_100_cx_12345", "n": 100, "v5_fidelity": 2.5387469123660107e-219, "v5_depth": 15524, "v5_swaps": 4071, "v5_twoq": 32015, "v5_wall": 93.18, "inj_fidelity": 6.011784964419864e-138}
+{"circuit": "benchpress/dtc/dtc_100_cz_12345", "n": 100, "v5_fidelity": 3.019379141830722e-263, "v5_depth": 18764, "v5_swaps": 4044, "v5_twoq": 31932, "v5_wall": 129.23, "inj_fidelity": 1.5219967773362055e-137}
+{"circuit": "benchpress/feynman/adder", "n": 10, "v5_error": "QASMError: unknown gate 'gate'", "inj_fidelity": 0.5069296138885767}
+{"circuit": "benchpress/feynman/adder_8", "n": 24, "v5_fidelity": 0.00019576228165172735, "v5_depth": 1551, "v5_swaps": 186, "v5_twoq": 967, "v5_wall": 9.67, "inj_fidelity": 0.007275249289158664}
+{"circuit": "benchpress/feynman/barenco_tof_10", "n": 19, "v5_fidelity": 0.020550149111839937, "v5_depth": 1512, "v5_swaps": 86, "v5_twoq": 450, "v5_wall": 3.96, "inj_fidelity": 0.10367341644685636}
+{"circuit": "benchpress/feynman/barenco_tof_3", "n": 5, "v5_fidelity": 0.7326228639499015, "v5_depth": 189, "v5_swaps": 9, "v5_twoq": 51, "v5_wall": 1.94, "inj_fidelity": 0.7799271375201439}
+{"circuit": "benchpress/feynman/barenco_tof_4", "n": 7, "v5_fidelity": 0.49399656570563355, "v5_depth": 311, "v5_swaps": 13, "v5_twoq": 87, "v5_wall": 2.15, "inj_fidelity": 0.5831286231835766}
+{"circuit": "benchpress/feynman/barenco_tof_5", "n": 9, "v5_fidelity": 0.31075594733982326, "v5_depth": 537, "v5_swaps": 25, "v5_twoq": 147, "v5_wall": 2.48, "inj_fidelity": 0.47285950270594}
+{"circuit": "benchpress/feynman/bigadder", "n": 18, "v5_error": "QASMError: unknown gate 'gate'", "inj_fidelity": 0.24135613594603147}
+{"circuit": "benchpress/feynman/csla_mux_3", "n": 15, "v5_fidelity": 0.2433839564786646, "v5_depth": 345, "v5_swaps": 25, "v5_twoq": 147, "v5_wall": 2.77, "inj_fidelity": 0.4233955985438682}
+{"circuit": "benchpress/feynman/csum_mux_9", "n": 30, "v5_fidelity": 0.017613961941394397, "v5_depth": 651, "v5_swaps": 87, "v5_twoq": 429, "v5_wall": 5.06, "inj_fidelity": 0.09166796541922072}
+{"circuit": "benchpress/feynman/gf2^10_mult", "n": 30, "v5_fidelity": 8.372652181771305e-09, "v5_depth": 3916, "v5_swaps": 476, "v5_twoq": 2037, "v5_wall": 13.37, "inj_fidelity": 5.203581493996484e-05}
+{"circuit": "benchpress/feynman/gf2^16_mult", "n": 48, "v5_fidelity": 5.918209145005586e-24, "v5_depth": 7482, "v5_swaps": 1408, "v5_twoq": 5805, "v5_wall": 38.22, "inj_fidelity": 5.816000824067e-13}
+{"circuit": "benchpress/feynman/gf2^32_mult", "n": 96, "v5_fidelity": 1.825303715883928e-120, "v5_depth": 22488, "v5_swaps": 6630, "v5_twoq": 26158, "v5_wall": 82.35, "inj_fidelity": 2.2474821714513642e-60}
+{"circuit": "benchpress/feynman/gf2^4_mult", "n": 12, "v5_fidelity": 0.1141183435406119, "v5_depth": 739, "v5_swaps": 50, "v5_twoq": 249, "v5_wall": 2.6, "inj_fidelity": 0.2862561876579267}
+{"circuit": "benchpress/feynman/gf2^5_mult", "n": 15, "v5_fidelity": 0.0194812684958444, "v5_depth": 1049, "v5_swaps": 94, "v5_twoq": 436, "v5_wall": 3.31, "inj_fidelity": 0.1270464762040975}
+{"circuit": "benchpress/feynman/gf2^6_mult", "n": 18, "v5_fidelity": 0.003572718612031901, "v5_depth": 1479, "v5_swaps": 137, "v5_twoq": 632, "v5_wall": 4.7, "inj_fidelity": 0.04831892481611815}
+{"circuit": "benchpress/feynman/gf2^7_mult", "n": 21, "v5_fidelity": 0.00026252603937723315, "v5_depth": 1877, "v5_swaps": 200, "v5_twoq": 900, "v5_wall": 5.71, "inj_fidelity": 0.0161531823019217}
+{"circuit": "benchpress/feynman/gf2^8_mult", "n": 24, "v5_fidelity": 1.07574872099244e-05, "v5_depth": 2330, "v5_swaps": 291, "v5_twoq": 1278, "v5_wall": 7.75, "inj_fidelity": 0.002266397566624494}
+{"circuit": "benchpress/feynman/gf2^9_mult", "n": 27, "v5_fidelity": 6.106390135161976e-07, "v5_depth": 2844, "v5_swaps": 352, "v5_twoq": 1550, "v5_wall": 9.28, "inj_fidelity": 0.000570145923931119}
+{"circuit": "benchpress/feynman/grover_5", "n": 9, "v5_fidelity": 0.002601342497252846, "v5_depth": 2519, "v5_swaps": 145, "v5_twoq": 723, "v5_wall": 3.93, "inj_fidelity": 0.04725952736511263}
+{"circuit": "benchpress/feynman/ham15-high", "n": 20, "v5_fidelity": 6.512587362262412e-23, "v5_depth": 16995, "v5_swaps": 1182, "v5_twoq": 5697, "v5_wall": 25.33, "inj_fidelity": 3.3603265983330194e-13}
+{"circuit": "benchpress/feynman/ham15-low", "n": 17, "v5_fidelity": 0.002414194140202445, "v5_depth": 1751, "v5_swaps": 152, "v5_twoq": 693, "v5_wall": 5.23, "inj_fidelity": 0.026980068345429712}
+{"circuit": "benchpress/feynman/ham15-med", "n": 17, "v5_fidelity": 4.844923264421169e-06, "v5_depth": 4387, "v5_swaps": 302, "v5_twoq": 1440, "v5_wall": 6.39, "inj_fidelity": 0.0008963654145236257}
+{"circuit": "benchpress/feynman/hwb10", "n": 16, "v5_fidelity": 3.5e-322, "v5_depth": 260722, "v5_swaps": 21643, "v5_twoq": 99778, "v5_wall": 537.95, "inj_fidelity": 3.85310983483333e-229}
+{"circuit": "benchpress/feynman/hwb11", "n": 15, "v5_fidelity": 3.5e-322, "v5_depth": 764300, "v5_swaps": 62675, "v5_twoq": 285694, "v5_wall": 2937.46, "inj_fidelity": 3.5e-322}

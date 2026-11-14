@@ -1,0 +1,84 @@
+{"circuit": "benchpress/clifford/clifford_100_12345", "n": 100, "native_fidelity": 2.195119704745369e-129, "inj_fidelity": 4.950220812047142e-128, "b_error": "QASM2ParseError: \"clifford_100_12345.qasm:93,0: 'swap' is not defined in this"}
+{"circuit": "benchpress/clifford/clifford_20_12345", "n": 20, "native_fidelity": 9.601168042470584e-21, "inj_fidelity": 2.471501131179649e-20, "b_error": "QASM2ParseError: \"clifford_20_12345.qasm:7,0: 'swap' is not defined in this s"}
+{"circuit": "benchpress/dtc/dtc_100_cx_12345", "n": 100, "native_fidelity": 7.879086556015914e-139, "inj_fidelity": 6.011784964419864e-138, "b_fidelity": 3.416781704922986e-131, "b_twoq": 19800, "b_depth": 2293, "b_wall": 5.28}
+{"circuit": "benchpress/dtc/dtc_100_cz_12345", "n": 100, "native_fidelity": 1.99401305130385e-140, "inj_fidelity": 1.5219967773362055e-137, "b_fidelity": 2.6136677121647992e-139, "b_twoq": 19800, "b_depth": 2299, "b_wall": 1.65}
+{"circuit": "benchpress/feynman/adder", "n": 10, "native_fidelity": 0.5281969749940467, "inj_fidelity": 0.5069296138885767, "b_fidelity": 0.480945521172734, "b_twoq": 102, "b_depth": 259, "b_wall": 0.04}
+{"circuit": "benchpress/feynman/adder_8", "n": 24, "native_fidelity": 0.006100818671688183, "inj_fidelity": 0.007275249289158664, "b_fidelity": 0.0068269499007737175, "b_twoq": 711, "b_depth": 795, "b_wall": 0.11}
+{"circuit": "benchpress/feynman/barenco_tof_10", "n": 19, "native_fidelity": 0.11416208990783017, "inj_fidelity": 0.10367341644685636, "b_fidelity": 0.12133245180514796, "b_twoq": 308, "b_depth": 915, "b_wall": 0.08}
+{"circuit": "benchpress/feynman/barenco_tof_3", "n": 5, "native_fidelity": 0.8457810439864468, "inj_fidelity": 0.7799271375201439, "b_fidelity": 0.8432143780317466, "b_twoq": 34, "b_depth": 116, "b_wall": 0.02}
+{"circuit": "benchpress/feynman/barenco_tof_4", "n": 7, "native_fidelity": 0.6537018051957975, "inj_fidelity": 0.5831286231835766, "b_fidelity": 0.6649822570285137, "b_twoq": 74, "b_depth": 238, "b_wall": 0.02}
+{"circuit": "benchpress/feynman/barenco_tof_5", "n": 9, "native_fidelity": 0.550758131567716, "inj_fidelity": 0.47285950270594, "b_fidelity": 0.5541878577005843, "b_twoq": 99, "b_depth": 340, "b_wall": 0.03}
+{"circuit": "benchpress/feynman/bigadder", "n": 18, "native_fidelity": 0.21892654992232433, "inj_fidelity": 0.24135613594603147, "b_fidelity": 0.2589179032365659, "b_twoq": 204, "b_depth": 436, "b_wall": 0.04}
+{"circuit": "benchpress/feynman/csla_mux_3", "n": 15, "native_fidelity": 0.42698049614386435, "inj_fidelity": 0.4233955985438682, "b_fidelity": 0.45409937013174906, "b_twoq": 120, "b_depth": 232, "b_wall": 0.03}
+{"circuit": "benchpress/feynman/csum_mux_9", "n": 30, "native_fidelity": 0.0971347400996236, "inj_fidelity": 0.09166796541922072, "b_fidelity": 0.0937070772417705, "b_twoq": 318, "b_depth": 307, "b_wall": 0.05}
+{"circuit": "benchpress/feynman/gf2^10_mult", "n": 30, "native_fidelity": 0.00010386911487399295, "inj_fidelity": 5.203581493996484e-05, "b_fidelity": 3.111529185990453e-05, "b_twoq": 1454, "b_depth": 1793, "b_wall": 0.1}
+{"circuit": "benchpress/feynman/gf2^16_mult", "n": 48, "native_fidelity": 2.9848033493873293e-12, "inj_fidelity": 5.816000824067e-13, "b_fidelity": 1.4598751336648759e-12, "b_twoq": 3686, "b_depth": 3566, "b_wall": 0.28}
+{"circuit": "benchpress/feynman/gf2^32_mult", "n": 96, "native_fidelity": 6.645808973849973e-65, "inj_fidelity": 2.2474821714513642e-60, "b_fidelity": 7.279968445519987e-67, "b_twoq": 14533, "b_depth": 8286, "b_wall": 0.95}
+{"circuit": "benchpress/feynman/gf2^4_mult", "n": 12, "native_fidelity": 0.3262247668969423, "inj_fidelity": 0.2862561876579267, "b_fidelity": 0.3167667034835246, "b_twoq": 172, "b_depth": 371, "b_wall": 0.03}
+{"circuit": "benchpress/feynman/gf2^5_mult", "n": 15, "native_fidelity": 0.14845781123092927, "inj_fidelity": 0.1270464762040975, "b_fidelity": 0.13769034829289808, "b_twoq": 295, "b_depth": 520, "b_wall": 0.04}
+{"circuit": "benchpress/feynman/gf2^6_mult", "n": 18, "native_fidelity": 0.04869429726556147, "inj_fidelity": 0.04831892481611815, "b_fidelity": 0.043046289636175065, "b_twoq": 452, "b_depth": 853, "b_wall": 0.05}
+{"circuit": "benchpress/feynman/gf2^7_mult", "n": 21, "native_fidelity": 0.014955087182926213, "inj_fidelity": 0.0161531823019217, "b_fidelity": 0.01174302369221508, "b_twoq": 630, "b_depth": 954, "b_wall": 0.07}
+{"circuit": "benchpress/feynman/gf2^8_mult", "n": 24, "native_fidelity": 0.002766536778743646, "inj_fidelity": 0.002266397566624494, "b_fidelity": 0.002474527190559977, "b_twoq": 897, "b_depth": 1124, "b_wall": 0.07}
+{"circuit": "benchpress/feynman/gf2^9_mult", "n": 27, "native_fidelity": 0.0006114504089775466, "inj_fidelity": 0.000570145923931119, "b_fidelity": 0.0004635544185741313, "b_twoq": 1091, "b_depth": 1645, "b_wall": 0.08}
+{"circuit": "benchpress/feynman/grover_5", "n": 9, "native_fidelity": 0.05153444616111408, "inj_fidelity": 0.04725952736511263, "b_fidelity": 0.04163763783143406, "b_twoq": 437, "b_depth": 1343, "b_wall": 0.05}
+{"circuit": "benchpress/feynman/ham15-high", "n": 20, "native_fidelity": 1.0492747959821653e-13, "inj_fidelity": 3.3603265983330194e-13, "b_fidelity": 9.233296694928556e-14, "b_twoq": 4204, "b_depth": 10674, "b_wall": 0.24}
+{"circuit": "benchpress/feynman/ham15-low", "n": 17, "native_fidelity": 0.027145856247262536, "inj_fidelity": 0.026980068345429712, "b_fidelity": 0.02635136610577721, "b_twoq": 547, "b_depth": 1032, "b_wall": 0.05}
+{"circuit": "benchpress/feynman/ham15-med", "n": 17, "native_fidelity": 0.0009115422036701951, "inj_fidelity": 0.0008963654145236257, "b_fidelity": 0.0012334783972107975, "b_twoq": 1061, "b_depth": 2683, "b_wall": 0.08}
+{"circuit": "benchpress/feynman/hwb10", "n": 16, "native_fidelity": 1.7318934688100182e-234, "inj_fidelity": 3.85310983483333e-229, "b_fidelity": 1.3497386457487232e-231, "b_twoq": 78192, "b_depth": 155779, "b_wall": 6.86}
+{"circuit": "benchpress/feynman/hwb11", "n": 15, "native_fidelity": 3.46e-322, "inj_fidelity": 3.5e-322, "b_fidelity": 3.5e-322, "b_twoq": 224304, "b_depth": 457593, "b_wall": 29.16}
+{"circuit": "benchpress/feynman/hwb12", "n": 20, "native_fidelity": 3.5e-322, "inj_fidelity": 3.5e-322, "b_fidelity": 3.5e-322, "b_twoq": 453615, "b_depth": 899097, "b_wall": 49.07}
+{"circuit": "benchpress/feynman/hwb6", "n": 7, "native_fidelity": 0.3569882404196115, "inj_fidelity": 0.2552859759446917, "b_fidelity": 0.33728357215963894, "b_twoq": 182, "b_depth": 521, "b_wall": 0.05}
+{"circuit": "mqtbench/ae_15", "n": 15, "native_fidelity": 0.035459733391037564, "inj_fidelity": 0.04324578619695326, "b_error": "file missing"}
+{"circuit": "mqtbench/bmw_quark_cardinality_15", "n": 15, "native_fidelity": 0.4606486959469358, "inj_fidelity": 0.3865064201066512, "b_error": "file missing"}
+{"circuit": "mqtbench/bv_15", "n": 15, "native_fidelity": 0.9285818905410463, "inj_fidelity": 0.9154018942843289, "b_error": "file missing"}
+{"circuit": "mqtbench/dj_15", "n": 15, "native_fidelity": 0.8082117217647904, "inj_fidelity": 0.742070367362513, "b_error": "file missing"}
+{"circuit": "mqtbench/dynamic_qft_15", "n": 15, "native_fidelity": null, "inj_fidelity": null, "b_error": "file missing"}
+{"circuit": "mqtbench/ghz_15", "n": 15, "native_fidelity": 0.9007668536635138, "inj_fidelity": 0.8528965721905157, "b_error": "file missing"}
+{"circuit": "mqtbench/ghz_dynamic_15", "n": 15, "native_fidelity": null, "inj_fidelity": null, "b_error": "file missing"}
+{"circuit": "mqtbench/graphstate_15", "n": 15, "native_fidelity": 0.8557832311679098, "inj_fidelity": 0.8610699881476066, "b_error": "file missing"}
+{"circuit": "mqtbench/grover_15", "n": 15, "native_fidelity": 3.46e-322, "inj_fidelity": 4.35e-322, "b_error": "file missing"}
+{"circuit": "mqtbench/half_adder_15", "n": 15, "native_fidelity": 0.1462851245430474, "inj_fidelity": 0.16014009994097278, "b_error": "file missing"}
+{"circuit": "mqtbench/hhl_15", "n": 15, "native_fidelity": 0.0033201531434087963, "inj_fidelity": 0.005782514160186322, "b_error": "file missing"}
+{"circuit": "mqtbench/iqpe_15", "n": 2, "native_fidelity": null, "inj_fidelity": null, "b_error": "file missing"}
+{"circuit": "mqtbench/qaoa_15", "n": 15, "native_fidelity": 0.04631963819466112, "inj_fidelity": 0.05526553520395515, "b_error": "file missing"}
+{"circuit": "mqtbench/qft_15", "n": 15, "native_fidelity": 0.06184642923510115, "inj_fidelity": 0.07015544999797002, "b_error": "file missing"}
+{"circuit": "mqtbench/qftentangled_15", "n": 15, "native_fidelity": 0.050994220428756586, "inj_fidelity": 0.04923445296981939, "b_error": "file missing"}
+{"circuit": "mqtbench/qnn_15", "n": 15, "native_fidelity": 0.8430787614290626, "inj_fidelity": 0.7818882518183977, "b_error": "file missing"}
+{"circuit": "mqtbench/qpeexact_15", "n": 15, "native_fidelity": 0.0729118211001499, "inj_fidelity": 0.05848174337864342, "b_error": "file missing"}
+{"circuit": "mqtbench/qpeinexact_15", "n": 15, "native_fidelity": 0.07824039005212453, "inj_fidelity": 0.05288931634059737, "b_error": "file missing"}
+{"circuit": "mqtbench/qwalk_15", "n": 15, "native_fidelity": 8.301253702813482e-75, "inj_fidelity": 4.702308966530099e-75, "b_error": "file missing"}
+{"circuit": "mqtbench/randomcircuit_15", "n": 15, "native_fidelity": 1.0109712521046382e-05, "inj_fidelity": 6.958859372204724e-06, "b_error": "file missing"}
+{"circuit": "mqtbench/vqe_real_amp_15", "n": 15, "native_fidelity": 0.6644606076880641, "inj_fidelity": 0.6318733060407661, "b_error": "file missing"}
+{"circuit": "mqtbench/vqe_su2_15", "n": 15, "native_fidelity": 0.648606019113357, "inj_fidelity": 0.5733819453032482, "b_error": "file missing"}
+{"circuit": "mqtbench/vqe_two_local_15", "n": 15, "native_fidelity": 0.017400809234612232, "inj_fidelity": 0.006629945606654196, "b_error": "file missing"}
+{"circuit": "mqtbench/wstate_15", "n": 15, "native_fidelity": 0.7988030360633772, "inj_fidelity": 0.7164459633650495, "b_error": "file missing"}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.1D2_0", "n": 20, "native_fidelity": 0.8044348611348782, "inj_fidelity": 0.7607532146203383, "b_fidelity": 0.8277807826350807, "b_twoq": 31, "b_depth": 68, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.1D2_1", "n": 20, "native_fidelity": 0.7531058808770316, "inj_fidelity": 0.7141360841779698, "b_fidelity": 0.7419806962844323, "b_twoq": 51, "b_depth": 108, "b_wall": 0.02}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.1D2_2", "n": 20, "native_fidelity": 0.8097406837439306, "inj_fidelity": 0.7825532501096367, "b_fidelity": 0.8290490458758353, "b_twoq": 38, "b_depth": 82, "b_wall": 0.07}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.1D2_3", "n": 20, "native_fidelity": 0.8404807764296002, "inj_fidelity": 0.8267881071671541, "b_fidelity": 0.8382554349462978, "b_twoq": 32, "b_depth": 67, "b_wall": 0.02}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.1D2_4", "n": 20, "native_fidelity": 0.7489890257384209, "inj_fidelity": 0.6921649281251655, "b_fidelity": 0.7423267819816308, "b_twoq": 49, "b_depth": 126, "b_wall": 0.02}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.1D2_5", "n": 20, "native_fidelity": 0.8496451932459419, "inj_fidelity": 0.833938482188458, "b_fidelity": 0.8489219415162412, "b_twoq": 32, "b_depth": 42, "b_wall": 0.08}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.1D2_6", "n": 20, "native_fidelity": 0.7953063086760784, "inj_fidelity": 0.7807189812987448, "b_fidelity": 0.7989074489335537, "b_twoq": 42, "b_depth": 87, "b_wall": 0.04}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.1D2_7", "n": 20, "native_fidelity": 0.7662609797915803, "inj_fidelity": 0.72521310301263, "b_fidelity": 0.7662609797915803, "b_twoq": 44, "b_depth": 63, "b_wall": 0.05}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.1D2_8", "n": 20, "native_fidelity": 0.7883242525712125, "inj_fidelity": 0.770958428922218, "b_fidelity": 0.7812779949414007, "b_twoq": 44, "b_depth": 79, "b_wall": 0.02}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.1D2_9", "n": 20, "native_fidelity": 0.9027849055027068, "inj_fidelity": 0.8495617378298939, "b_fidelity": 0.9027849055027068, "b_twoq": 18, "b_depth": 34, "b_wall": 0.04}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.2D2_0", "n": 20, "native_fidelity": 0.4873175422649159, "inj_fidelity": 0.45449670689996724, "b_fidelity": 0.5293781025920619, "b_twoq": 119, "b_depth": 130, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.2D2_1", "n": 20, "native_fidelity": 0.5630865402828655, "inj_fidelity": 0.4983379514103165, "b_fidelity": 0.5066270879129469, "b_twoq": 108, "b_depth": 111, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.2D2_2", "n": 20, "native_fidelity": 0.4769671607285209, "inj_fidelity": 0.44688492256414075, "b_fidelity": 0.47901851040551413, "b_twoq": 125, "b_depth": 144, "b_wall": 0.04}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.2D2_3", "n": 20, "native_fidelity": 0.46384167985711416, "inj_fidelity": 0.43175616590858934, "b_fidelity": 0.4282353719940031, "b_twoq": 135, "b_depth": 119, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.2D2_4", "n": 20, "native_fidelity": 0.5925305441981416, "inj_fidelity": 0.5094831208883693, "b_fidelity": 0.5886804304543309, "b_twoq": 92, "b_depth": 86, "b_wall": 0.15}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.2D2_5", "n": 20, "native_fidelity": 0.5046500671779997, "inj_fidelity": 0.4971933743540895, "b_fidelity": 0.5176016657796468, "b_twoq": 106, "b_depth": 126, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.2D2_6", "n": 20, "native_fidelity": 0.5375604848890527, "inj_fidelity": 0.4722836887477117, "b_fidelity": 0.5699283135709029, "b_twoq": 103, "b_depth": 102, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.2D2_7", "n": 20, "native_fidelity": 0.5028201313138368, "inj_fidelity": 0.4716368353230675, "b_fidelity": 0.496946155059315, "b_twoq": 119, "b_depth": 133, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.2D2_8", "n": 20, "native_fidelity": 0.47781432377843336, "inj_fidelity": 0.39546986142097007, "b_fidelity": 0.47365907350242603, "b_twoq": 132, "b_depth": 148, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.2D2_9", "n": 20, "native_fidelity": 0.5828967873677384, "inj_fidelity": 0.5274206528287508, "b_fidelity": 0.528963191091865, "b_twoq": 106, "b_depth": 126, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.3D2_0", "n": 20, "native_fidelity": 0.41263009656551786, "inj_fidelity": 0.3588307031382595, "b_fidelity": 0.40343829573962614, "b_twoq": 150, "b_depth": 159, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.3D2_1", "n": 20, "native_fidelity": 0.3118389834947623, "inj_fidelity": 0.26884902729214966, "b_fidelity": 0.3094957285367437, "b_twoq": 198, "b_depth": 157, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.3D2_2", "n": 20, "native_fidelity": 0.31712744788917335, "inj_fidelity": 0.30230243813273006, "b_fidelity": 0.2592100233232787, "b_twoq": 196, "b_depth": 239, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.3D2_3", "n": 20, "native_fidelity": 0.30698365784845827, "inj_fidelity": 0.26358927600178594, "b_fidelity": 0.32164416988244277, "b_twoq": 196, "b_depth": 178, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.3D2_4", "n": 20, "native_fidelity": 0.3056551328339479, "inj_fidelity": 0.29042502812640913, "b_fidelity": 0.3316822240919069, "b_twoq": 183, "b_depth": 204, "b_wall": 0.04}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.3D2_5", "n": 20, "native_fidelity": 0.3531258044768675, "inj_fidelity": 0.30770089118310207, "b_fidelity": 0.34999349230148596, "b_twoq": 165, "b_depth": 170, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.3D2_6", "n": 20, "native_fidelity": 0.3622936430216787, "inj_fidelity": 0.2830484839289212, "b_fidelity": 0.2831839975393502, "b_twoq": 196, "b_depth": 180, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.3D2_7", "n": 20, "native_fidelity": 0.398645550387252, "inj_fidelity": 0.3022797506429767, "b_fidelity": 0.32294869549283994, "b_twoq": 178, "b_depth": 131, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.3D2_8", "n": 20, "native_fidelity": 0.3294152443469495, "inj_fidelity": 0.29167859310389765, "b_fidelity": 0.3371654156874999, "b_twoq": 180, "b_depth": 192, "b_wall": 0.03}
+{"circuit": "queko_BIGD/20QBT_45CYC_.0D1_.3D2_9", "n": 20, "native_fidelity": 0.5653251263709137, "inj_fidelity": 0.49320082344064786, "b_fidelity": 0.5179251248364165, "b_twoq": 115, "b_depth": 102, "b_wall": 0.04}

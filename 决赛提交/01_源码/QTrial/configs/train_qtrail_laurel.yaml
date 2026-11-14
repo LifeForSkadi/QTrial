@@ -1,0 +1,50 @@
+# QTrail v2 + LAUREL 残差（arXiv:2411.07501，RW+LR 组合）
+# 在 v2（深度感知 + 时序加权）基础上把 GAT 编码器的普通残差替换为
+# 可学习残差；复现重训：python -m qtrail.train --config configs/train_qtrail_laurel.yaml
+model:
+  encoder: gat
+  d: 128
+  gat_layers: 4
+  gat_heads: 8
+  gat_dropout: 0.1
+  norm: graph
+  decoder_heads: 16
+  clamp: 10.0
+  context: concat_project
+  rich_context: true
+  program_features: six
+  device_features: calib
+  laurel: rw_lr                 # LAUREL 残差：rw_lr（残差权重 + 低秩）
+  laurel_rank: 4
+
+reward:
+  mode: combined
+  dist_mult: 2.0
+  normalize: true
+  depth_lambda: 0.1           # 负载均衡惩罚（惩罚交互热点比特 -> 布局偏向低深度）
+
+graph:
+  temporal_alpha: 0.5         # 边权 += 0.5 × 交互层跨度数（时序感知）
+
+train:
+  seed: 42
+  epochs: 400
+  batch_size: 512
+  episodes_per_epoch: 4096
+  lr: 3.0e-4
+  lr_min: 3.0e-5
+  grad_clip: 1.0
+  entropy_beta: 0.0
+  baseline: self_critic
+  early_stop_patience: 50
+  log_every: 1
+  save_every: 5
+  compile: false
+  random_p: 0.3
+  size_mix: {small: 0.5, medium: 0.3, large: 0.2}
+  size_ranges: {small: [5, 40], medium: [41, 80], large: [81, 105]}
+  dataset_mix: {random: 0.5, circuit: 0.5}
+  curriculum: false
+  val_episodes: 96
+  val_seed: 1234
+  pool: data/mqtbench/graph_pool_t05.pkl   # 时序加权图池

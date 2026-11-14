@@ -71,3 +71,7 @@ tables/gate_attribution/*_shard*.jsonl
 
 # v8 基准桶缓存（并行分片用，体积大、可重建）
 tables/final_report_v8/buckets_cache.pkl
+
+# ===== 办公文档（二进制交付件，按需用 tools/ 构建） =====
+*.pptx
+*.docx

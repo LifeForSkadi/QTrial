@@ -1,0 +1,44 @@
+Traceback (most recent call last):
+  File "F:\Study\Quantum Computing\信安竞赛\QTrial\scripts\diag_hwb12_stack.py", line 82, in <module>
+    main()
+    ~~~~^^
+  File "F:\Study\Quantum Computing\信安竞赛\QTrial\scripts\diag_hwb12_stack.py", line 64, in main
+    routed, swaps, fl = sabre_route(circ, spec, layout, seed=42,
+                        ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                    lam_ms=mapper.lam_ms, trials=16,
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                    mix_rollout=(circ.n > 10))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\Study\Quantum Computing\信安竞赛\QTrial\qtrail\pure\router.py", line 123, in sabre_route
+    results = list(ex.map(_trial, range(trials)))
+  File "C:\Python313\Lib\concurrent\futures\_base.py", line 619, in result_iterator
+    yield _result_or_cancel(fs.pop())
+          ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Python313\Lib\concurrent\futures\_base.py", line 317, in _result_or_cancel
+    return fut.result(timeout)
+           ~~~~~~~~~~^^^^^^^^^
+  File "C:\Python313\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "C:\Python313\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "C:\Python313\Lib\concurrent\futures\thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "F:\Study\Quantum Computing\信安竞赛\QTrial\qtrail\pure\router.py", line 119, in _trial
+    return sabre_route(circ, spec, dict(layout), seed=seed + k,
+                       **kw)
+  File "F:\Study\Quantum Computing\信安竞赛\QTrial\qtrail\pure\router.py", line 355, in sabre_route
+    return _RK.run_numba_route(
+           ~~~~~~~~~~~~~~~~~~~^
+        circ=circ, spec=spec, seed=seed, ops=ops, m=m,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<12 lines>...
+        decay=decay, last_edge=last_edge,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        last_qubit=last_qubit)
+        ^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\Study\Quantum Computing\信安竞赛\QTrial\qtrail\pure\router_kernel.py", line 649, in run_numba_route
+    raise RuntimeError(
+        f"sabre_route swap 触顶 {max_swaps}——线路需要更多"
+        f"路由预算，调用方须提高 max_swaps 或降级线路")
+RuntimeError: sabre_route swap 触顶 100000——线路需要更多路由预算，调用方须提高 max_swaps 或降级线路

@@ -1,0 +1,28 @@
+# 天衍-287 真机拓扑配置（选项 C：与评测口径并存，2026-11-09）
+# 拓扑：182 设计边（竖边 + "正正反反"周期对角边的弯曲排布）−
+#       14 禁用耦合器 = 168 可用边；4 个禁用比特（内部 21/26/34/89）；
+#       比特标签 Q1..Q105。
+# 边表/禁用/校准快照：device_tianyan287_real_topo.json /
+#                     device_tianyan287_real_calib.json
+# （2026-11-09 平台 API download_config 固化；重新固化的工具：
+#   scripts/probe_real_machines.py + tools/generate_real_device_config.py）
+# 校准优先级：显式传入 > live（API，需 login key）> 快照 > 合成兜底。
+# 用法：python -m qtrail.pure_cli in.qasm --device tianyan-287-real
+# 评测口径（188 边矩形网格+合成校准）仍为默认，见 device_tianyan287.yaml。
+name: tianyan-287-real
+rows: 15
+cols: 7
+
+absent_couplers: []
+disabled_qubits: [21, 26, 34, 89]
+
+calibration: snapshot   # snapshot（仓库内快照）| live（API 拉取）| synthetic
+calibration_seed: 0
+correlated_defects: true
+
+noise:
+  alpha: 0.5
+  beta: 0.1
+  lambda_n: 0.5
+  err2q_clip: [0.2, 5.0]
+  t1_penalty_clip: 2.0

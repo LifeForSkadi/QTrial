@@ -75,7 +75,7 @@ def main():
     for name in names:
         n = None
         for arm in ("v8", "o3"):
-            mp = OUT / f"{name}_{arm}_metrics.json"
+            mp = Path("out/real_machine_v9/tianyan176") / f"{name}_{arm}_metrics.json"
             cp = OUT / f"{name}_{arm}_counts.json"
             if not mp.exists() or not cp.exists():
                 continue

@@ -1,0 +1,38 @@
+# 天衍-287 设备配置（评测口径：合成设备模型）
+# 芯片：祖冲之三号同款（arXiv 2412.11924），105 数据比特、182 耦合器。
+# 本文件建模的是【评测口径设备】= 15x7 完整矩形网格（188 边）+ 合成校准
+# ——587 条基准、训练权重、报告书全部实验数字均基于此口径。
+#
+# 真机实测拓扑（2026-11-09 经平台 API download_config 核验，data/tianyan_probe/）：
+#   - coupler_map 共 182 条（= 芯片设计值），标签 Q1..Q105；
+#   - 拓扑结构 = 竖边（每行对 7 条）+ 对角边（每行对 6 条，方向按
+#     "正正反反"周期 4 交替）的弯曲排布，**不是 15x7 矩形网格**——
+#     与矩形网格的边交集仅 98/188，60% 的边不同；
+#   - 当前禁用：disabledQubits = Q22,Q27,Q35,Q90（内部 21/26/34/89），
+#     disabledCouplers = 14 个（G49,G154,G167,G65,G40,G27,G155,G52,
+#     G37,G176,G38,G50,G168,G28）→ 可用耦合器 168 条；
+#   - 真机校准（均值）：T1 50.4us / T2 38.8us / 1Q 误差 0.07% /
+#     读出误差 2.4% / CZ 误差 0.53%（合成校准为 72/50us/0.1%/0.82%/0.38%）。
+# 换真机拓扑：用 adapter.download_tianyan287_spec（需 login_key），或
+# scripts/d2_topology_compare.py 的 build_real_spec 构造方式。
+name: tianyan-287
+rows: 15
+cols: 7
+
+# 缺失耦合器位置（内部编号 [q0, q1]）。
+# 评测口径默认留空 = 完整 188 边网格（见上）。
+# 真机的 182 边弯曲拓扑无法用 absent_couplers 表达（边集结构不同），
+# 需经 adapter/自定义构造。
+absent_couplers: []
+disabled_qubits: []
+
+calibration: synthetic
+calibration_seed: 0
+correlated_defects: true
+
+noise:
+  alpha: 0.5
+  beta: 0.1
+  lambda_n: 0.5
+  err2q_clip: [0.2, 5.0]
+  t1_penalty_clip: 2.0
